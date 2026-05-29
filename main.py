@@ -1,3 +1,4 @@
+import base64
 import io
 import logging
 import math
@@ -5,10 +6,19 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
+import torch
 from PIL import Image
 import piexif
+import matplotlib
+from rich.logging import RichHandler
+
+matplotlib.use("Agg")  # headless — must be before pyplot import
+import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from transformers import AutoModelForDepthEstimation, AutoImageProcessor
+
 
 @dataclass
 class VolumeEstimateResponse:
@@ -34,11 +44,30 @@ class CameraInfo:
     source: str # 'exif' | 'error'
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level="INFO",
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True)]
+)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Volume Estimation API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Load models at startup
+if torch.cuda.is_available():
+    device = "cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    device = "mps"
+else:
+    device = "cpu"
+
+torch_device = torch.device(device)
+processor = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf")
+model = AutoModelForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf").to(torch_device)
+model.eval()
+logger.info("Depth model loaded successfully.")
 
 def extract_image_info(image_bytes: bytes) -> CameraInfo:
     focal_35mm = 0.0
@@ -90,6 +119,27 @@ def extract_image_info(image_bytes: bytes) -> CameraInfo:
     )
 
 
+def estimate_depth(pillow_image: Image.Image) -> np.ndarray:
+    original_w, original_h = pillow_image.size
+
+    inputs = processor(images=pillow_image, return_tensors="pt") # preprocesses the image to ensure conformaty to the model
+    inputs = {k: v.to(torch_device) for k, v in inputs.items()}
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    depth_upsampled = torch.nn.functional.interpolate(
+        outputs.predicted_depth.unsqueeze(1), # (1, 1, H_model, W_model)
+        size=(original_h, original_w), # torch wants (H, W)
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze() # converts to -> (H_orig, W_orig)
+
+    depth_map = depth_upsampled.cpu().numpy().astype(np.float32)
+    depth_map = np.clip(depth_map, 0.1, 5.0)
+    return depth_map
+
+
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
     t_start = time.perf_counter()
@@ -122,8 +172,14 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
 
-    pillow_image.show()
 
+    t_b = time.perf_counter()
+    depth_map = estimate_depth(pillow_image)   # (H, W) float32, metres
+    logger.info(
+        f"[B] Depth inference done. "
+        f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
+        f"({time.perf_counter()-t_b:.3f}s)"
+    )
 
     t_total = time.perf_counter() - t_start
     logger.info(f"Total pipeline time: {t_total:.3f}s")
