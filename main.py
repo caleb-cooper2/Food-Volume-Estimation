@@ -17,7 +17,7 @@ matplotlib.use("Agg")  # headless — must be before pyplot import
 import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from transformers import AutoModelForDepthEstimation, AutoImageProcessor
+from transformers import AutoModelForDepthEstimation, AutoImageProcessor, Sam3Processor, Sam3Model
 
 
 @dataclass
@@ -68,6 +68,11 @@ processor = AutoImageProcessor.from_pretrained("depth-anything/Depth-Anything-V2
 model = AutoModelForDepthEstimation.from_pretrained("depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf").to(torch_device)
 model.eval()
 logger.info("Depth model loaded successfully.")
+
+sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
+sam3_model = Sam3Model.from_pretrained("facebook/sam3").to(torch_device)
+sam3_model.eval()
+logger.info("SAM 3 loaded.")
 
 def extract_image_info(image_bytes: bytes) -> CameraInfo:
     focal_35mm = 0.0
@@ -139,6 +144,33 @@ def estimate_depth(pillow_image: Image.Image) -> np.ndarray:
     depth_map = np.clip(depth_map, 0.1, 5.0)
     return depth_map
 
+def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float]]:
+    img_w, img_h = pillow_image.size
+
+    inputs = sam3_processor(images=pillow_image, text="food or drink", return_tensors="pt").to(torch_device)
+
+    with torch.no_grad():
+        outputs = sam3_model(**inputs)
+
+    results = sam3_processor.post_process_instance_segmentation(
+        outputs,
+        threshold=threshold,
+        mask_threshold=0.5,
+        target_sizes=inputs.get("original_sizes").tolist()
+    )[0]
+
+    masks = results["masks"]
+    scores = results["scores"]
+
+    if masks.shape[0] == 0:
+        logger.warning("SAM 3 found no food instances... returning full-image fallback mask")
+        return np.ones((img_h, img_w), dtype=np.uint8)
+
+    list_of_scores = scores.tolist()
+    logger.info(f"SAM 3 found {masks.shape[0]} food instances, scores: {list_of_scores}")
+
+    union_mask = masks.any(dim=0).cpu().numpy().astype(np.uint8) # multiple foods or split up foods, so need to union them
+    return union_mask
 
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
@@ -173,13 +205,19 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
 
 
-    t_b = time.perf_counter()
+    t_depth_start = time.perf_counter()
     depth_map = estimate_depth(pillow_image)   # (H, W) float32, metres
     logger.info(
         f"[B] Depth inference done. "
         f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
-        f"({time.perf_counter()-t_b:.3f}s)"
+        f"({time.perf_counter()-t_depth_start:.3f}s)"
     )
+
+    t_segmentation_start = time.perf_counter()
+    food_mask = segment_food(pillow_image) # (H, W) uint8 0/1
+    food_pixel_count = int(food_mask.sum())
+    food_coverage_pct = food_pixel_count / food_mask.size * 100
+    logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter()-t_segmentation_start:.3f}s)")
 
     t_total = time.perf_counter() - t_start
     logger.info(f"Total pipeline time: {t_total:.3f}s")
