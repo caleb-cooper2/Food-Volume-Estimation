@@ -144,6 +144,33 @@ def estimate_depth(pillow_image: Image.Image) -> np.ndarray:
     depth_map = np.clip(depth_map, 0.1, 5.0)
     return depth_map
 
+def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = None) -> str:
+    n_panels = 2 if pil_image is not None else 1
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5), dpi=100)
+
+    if n_panels == 1:
+        axes = [axes]
+
+    if pil_image is not None:
+        axes[0].imshow(pil_image)
+        axes[0].set_title("Input image", fontsize=11)
+        axes[0].axis("off")
+
+    im = axes[-1].imshow(depth_map, cmap="plasma", vmin=depth_map.min(), vmax=depth_map.max())
+    axes[-1].set_title("Predicted depth (m)", fontsize=11)
+    axes[-1].axis("off")
+
+    cbar = fig.colorbar(im, ax=axes[-1], fraction=0.046, pad=0.04)
+    cbar.set_label("metres", fontsize=9)
+    cbar.ax.tick_params(labelsize=8)
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)  # prevent memory leak
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
 def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float]]:
     img_w, img_h = pillow_image.size
 
@@ -212,6 +239,12 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
         f"({time.perf_counter()-t_depth_start:.3f}s)"
     )
+
+    # Render and save the depth map
+    depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
+    depth_bytes = base64.b64decode(depth_b64)
+    with open("/tmp/depth_debug.png", "wb") as f:
+        f.write(depth_bytes)
 
     t_segmentation_start = time.perf_counter()
     food_mask = segment_food(pillow_image) # (H, W) uint8 0/1
