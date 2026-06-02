@@ -171,6 +171,53 @@ def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = N
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
 
+def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores: list[float]) -> str:
+    import matplotlib.patches as mpatches
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=100)
+
+    # Left panel — original
+    axes[0].imshow(pil_image)
+    axes[0].set_title("Input image", fontsize=11)
+    axes[0].axis("off")
+
+    # Right panel — overlay
+    axes[1].imshow(pil_image)
+
+    # Green mask overlay at 45% opacity
+    rgba_mask = np.zeros((*food_mask.shape, 4), dtype=np.float32)
+    rgba_mask[food_mask.astype(bool)] = [0.0, 0.85, 0.3, 0.45]
+    axes[1].imshow(rgba_mask)
+
+    # Confidence label derived from mean score of detected instances
+    if scores:
+        mean_score = float(np.mean(scores))
+        confidence_label = (
+            "High"   if mean_score >= 0.75 else
+            "Medium" if mean_score >= 0.50 else
+            "Low"
+        )
+        color = "#22c55e" if mean_score >= 0.75 else "#f59e0b" if mean_score >= 0.50 else "#ef4444"
+        n_instances = len(scores)
+        label_text = f"Confidence: {confidence_label} ({mean_score:.2f})  |  Instances: {n_instances}"
+    else:
+        label_text = "Confidence: N/A  |  Instances: 0 (fallback mask)"
+        color = "#6b7280"
+
+    patch = mpatches.Patch(facecolor="#00d94f", edgecolor="white", linewidth=1.5,label="Food mask")
+    axes[1].legend(handles=[patch], loc="lower left", fontsize=9, framealpha=0.75, facecolor="#1e1e1e", labelcolor="white")
+    axes[1].set_title(label_text, fontsize=10, color=color, fontweight="bold")
+    axes[1].axis("off")
+
+    plt.suptitle("SAM 3 Food Segmentation", fontsize=13, fontweight="bold", y=1.01)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
 def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float]]:
     img_w, img_h = pillow_image.size
 
@@ -191,13 +238,13 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
 
     if masks.shape[0] == 0:
         logger.warning("SAM 3 found no food instances... returning full-image fallback mask")
-        return np.ones((img_h, img_w), dtype=np.uint8)
+        return np.ones((img_h, img_w), dtype=np.uint8), []
 
     list_of_scores = scores.tolist()
     logger.info(f"SAM 3 found {masks.shape[0]} food instances, scores: {list_of_scores}")
 
     union_mask = masks.any(dim=0).cpu().numpy().astype(np.uint8) # multiple foods or split up foods, so need to union them
-    return union_mask
+    return union_mask, list_of_scores
 
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
@@ -247,10 +294,16 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         f.write(depth_bytes)
 
     t_segmentation_start = time.perf_counter()
-    food_mask = segment_food(pillow_image) # (H, W) uint8 0/1
+    food_mask, mask_scores = segment_food(pillow_image) # (H, W) uint8 0/1
     food_pixel_count = int(food_mask.sum())
     food_coverage_pct = food_pixel_count / food_mask.size * 100
     logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter()-t_segmentation_start:.3f}s)")
+
+    # Render and save the segmentation mask
+    seg_b64 = overlay_food_mask_b64(pillow_image, food_mask, mask_scores)
+    seg_bytes = base64.b64decode(seg_b64)
+    with open("/tmp/seg_overlay.png", "wb") as f:
+        f.write(seg_bytes)
 
     t_total = time.perf_counter() - t_start
     logger.info(f"Total pipeline time: {t_total:.3f}s")
