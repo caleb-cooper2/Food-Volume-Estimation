@@ -9,16 +9,24 @@ from typing import Optional
 import numpy as np
 import torch
 from PIL import Image
+
+from pillow_heif import register_heif_opener
+register_heif_opener()
+from sklearn.linear_model import RANSACRegressor
+
 import piexif
 import matplotlib
 from rich.logging import RichHandler
 
-matplotlib.use("Agg")  # headless — must be before pyplot import
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import AutoModelForDepthEstimation, AutoImageProcessor, Sam3Processor, Sam3Model
 
+ASSUMED_CAMERA_HEIGHT_M = 0.30 # 30 cm baseline prior
+SCALE_CORRECTION_TOLERANCE = 0.02 # Skip correction if drift is < 2 cm
+M3_TO_CM3 = 1_000_000.0 # 1 m³ = 10⁶ cm³
 
 @dataclass
 class VolumeEstimateResponse:
@@ -42,6 +50,14 @@ class CameraInfo:
     image_width: int
     image_height: int
     source: str # 'exif' | 'error'
+
+@dataclass
+class VolumeResult:
+    volume_cm3: float
+    plate_depth_m: float
+    scale_correction_factor: float
+    max_food_height_cm: float
+    mean_food_height_cm: float
 
 
 logging.basicConfig(
@@ -74,9 +90,9 @@ sam3_model = Sam3Model.from_pretrained("facebook/sam3").to(torch_device)
 sam3_model.eval()
 logger.info("SAM 3 loaded.")
 
-def extract_image_info(image_bytes: bytes) -> CameraInfo:
+def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int) -> CameraInfo:
     focal_35mm = 0.0
-    img_w, img_h = 0, 0
+    source = "exif"
 
     try:
         exif_dict = piexif.load(image_bytes)
@@ -85,41 +101,33 @@ def extract_image_info(image_bytes: bytes) -> CameraInfo:
         # FocalLengthIn35mmFilm -> stored as unsigned short
         if piexif.ExifIFD.FocalLengthIn35mmFilm in exif_ifd:
             focal_35mm = float(exif_ifd[piexif.ExifIFD.FocalLengthIn35mmFilm])
-
-        # Image dimensions -> PixelXDimension / PixelYDimension
-        if piexif.ExifIFD.PixelXDimension in exif_ifd:
-            img_w = int(exif_ifd[piexif.ExifIFD.PixelXDimension])
-        if piexif.ExifIFD.PixelYDimension in exif_ifd:
-            img_h = int(exif_ifd[piexif.ExifIFD.PixelYDimension])
-
     except Exception:
         pass
 
-    source = "exif"
-    if focal_35mm == 0.0 or focal_35mm <= 0:
-        source = "error"
+    # Fallback if EXIF data is missing, zero, or corrupt
+    if focal_35mm <= 0.0:
+        source = "fallback"
+        focal_35mm = 26.0  # Industry standard 26mm wide lens equivalent for smartphones
+        logger.warning("Invalid/missing EXIF focal length. Using smartphone fallback (26mm).")
 
-    if img_w == 0 or img_h == 0:
-        source = "error"
-
-    # Horizontal FoV calculation based on 35mm equivalent focal length and sensor width
+    # Horizontal FoV calculation
     full_frame_width_mm = 36.0
     half_fov_h = math.atan(full_frame_width_mm / (2.0 * focal_35mm))
 
-    # Pixel-space focal lengths
-    fx = img_w / (2.0 * math.tan(half_fov_h))
-    fy = fx  # assumption that camera sensor from phone is square/squarish
+    # Calculate pixel focal lengths relative to actual image size
+    fx = actual_width / (2.0 * math.tan(half_fov_h))
+    fy = fx  # assume square sensor pixels
 
-    cx = img_w / 2.0
-    cy = img_h / 2.0
+    cx = actual_width / 2.0
+    cy = actual_height / 2.0
 
     return CameraInfo(
         fx=fx,
         fy=fy,
         cx=cx,
         cy=cy,
-        image_width=img_w,
-        image_height=img_h,
+        image_width=actual_width,
+        image_height=actual_height,
         source=source,
     )
 
@@ -221,7 +229,7 @@ def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores:
 def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float]]:
     img_w, img_h = pillow_image.size
 
-    inputs = sam3_processor(images=pillow_image, text="food or drink", return_tensors="pt").to(torch_device)
+    inputs = sam3_processor(images=pillow_image, text="food", return_tensors="pt").to(torch_device)
 
     with torch.no_grad():
         outputs = sam3_model(**inputs)
@@ -246,11 +254,105 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     union_mask = masks.any(dim=0).cpu().numpy().astype(np.uint8) # multiple foods or split up foods, so need to union them
     return union_mask, list_of_scores
 
+def apply_scale_correction(depth_map: np.ndarray, food_mask: np.ndarray, image_info: CameraInfo, assumed_height_m: float = ASSUMED_CAMERA_HEIGHT_M) -> tuple[np.ndarray, float, float, np.ndarray | None]:
+    bg_mask = food_mask == 0
+    bg_pixels = np.any(bg_mask)
+
+    plane_normal = None
+
+    if bg_pixels:
+        ys, xs = np.where(bg_mask)
+        Z_bg = depth_map[bg_mask]
+
+        X_bg = (xs - image_info.cx) * Z_bg / image_info.fx
+        Y_bg = (ys - image_info.cy) * Z_bg / image_info.fy
+
+        points_3d = np.stack([X_bg, Y_bg, Z_bg], axis=1)
+
+        # fit plane Z = aX + bY + c via RANSAC
+        if len(points_3d) >= 10:
+            try:
+                ransac = RANSACRegressor(
+                    residual_threshold=0.015, # 1.5 cm inlier tolerance
+                    max_trials=200,
+                    min_samples=0.1, # at least 10% of bg pixels
+                    random_state=42,
+                )
+                ransac.fit(points_3d[:, :2], points_3d[:, 2]) # fit Z = f(X, Y)
+                inlier_mask = ransac.inlier_mask_
+
+                # Plate depth = median of inlier Z values only
+                estimated_plate_depth_m = float(np.median(Z_bg[inlier_mask]))
+
+                # Recover plane normal from coefficients [a, b, -1] (unnormalised)
+                a, b = ransac.estimator_.coef_
+                normal_unnorm = np.array([-a, -b, 1.0])
+                plane_normal = normal_unnorm / np.linalg.norm(normal_unnorm)
+
+                logger.info(
+                    f"RANSAC plane fit: {inlier_mask.sum()}/{len(points_3d)} inliers, "
+                    f"plate depth = {estimated_plate_depth_m*100:.1f} cm, "
+                    f"normal = [{plane_normal[0]:.3f}, {plane_normal[1]:.3f}, {plane_normal[2]:.3f}]"
+                )
+            except Exception as e:
+                logger.warning(f"RANSAC plane fit failed ({e}), falling back to median.")
+                estimated_plate_depth_m = float(np.median(Z_bg))
+    else:
+        estimated_plate_depth_m = float(np.median(depth_map))
+
+    alpha = assumed_height_m / estimated_plate_depth_m
+
+    if not (0.5 <= alpha <= 2.0):
+        logger.warning(f"α = {alpha:.4f} outside [0.5, 2.0] — clamping to 1.0")
+        alpha = 1.0
+
+    logger.info(
+        f"Scale correction: plate = {estimated_plate_depth_m*100:.1f} cm, "
+        f"prior = {assumed_height_m*100:.1f} cm, α = {alpha:.4f}"
+    )
+    return depth_map.copy(), estimated_plate_depth_m, alpha, plane_normal
+
+
+def compute_volume(depth_map: np.ndarray, food_mask: np.ndarray, image_info: CameraInfo, estimated_plate_depth_m: float, alpha: float) -> VolumeResult:
+    food_pixels = food_mask > 0
+
+    if not np.any(food_pixels):
+        return VolumeResult(0.0, estimated_plate_depth_m, alpha, 0.0, 0.0)
+
+    Z_corrected = depth_map[food_pixels] * alpha
+    Zi = depth_map[food_pixels]
+
+    # Plate surface in corrected (metric) space
+    plate_surface_corrected = estimated_plate_depth_m * alpha
+
+    # Height should be computed using the corrected metric space
+    h_meters = plate_surface_corrected - Z_corrected
+    h_meters = np.clip(h_meters, 0.0, None)
+
+    pixel_area = (Zi / image_info.fx) * (Zi / image_info.fy)
+
+    dV = h_meters * pixel_area
+
+    total_volume_m3 = float(np.sum(dV))
+    total_volume_cm3 = total_volume_m3 * M3_TO_CM3
+
+    max_h_cm = float(h_meters.max()) * 100.0 if len(h_meters) > 0 else 0.0
+    mean_h_cm = float(h_meters.mean()) * 100.0 if len(h_meters) > 0 else 0.0
+
+    return VolumeResult(
+        volume_cm3=total_volume_cm3,
+        plate_depth_m=estimated_plate_depth_m,
+        scale_correction_factor=alpha,
+        max_food_height_cm=max_h_cm,
+        mean_food_height_cm=mean_h_cm
+    )
+
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
     t_start = time.perf_counter()
+    confidence = "high"
 
-    if file.content_type not in ("image/jpeg", "image/jpg", "image/png"):
+    if file.content_type not in ("image/jpeg", "image/jpg", "image/png", "image/heic"):
         raise HTTPException(
             status_code=415,
             detail=f"Unsupported media type '{file.content_type}'. Send JPEG or PNG only",
@@ -263,21 +365,22 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     if len(image_bytes) > 30 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Image too large -> maximum 30 MB")
 
+    # Decode PIL image ONCE early so we have true pixel geometry
+    try:
+        pillow_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
+
+    actual_w, actual_h = pillow_image.size
 
     t_image_info_start = time.perf_counter()
-    image_info = extract_image_info(image_bytes)
+    image_info = extract_image_info(image_bytes, actual_w, actual_h)
     logger.info(
         f"[A] Intrinsics ({image_info.source}): "
         f"fx={image_info.fx:.0f}, fy={image_info.fy:.0f}, "
         f"cx={image_info.cx:.0f}, cy={image_info.cy:.0f} "
         f"({time.perf_counter()-t_image_info_start:.3f}s)"
     )
-
-    try:
-        pillow_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
-
 
     t_depth_start = time.perf_counter()
     depth_map = estimate_depth(pillow_image)   # (H, W) float32, metres
@@ -287,17 +390,31 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         f"({time.perf_counter()-t_depth_start:.3f}s)"
     )
 
-    # Render and save the depth map
-    depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
-    depth_bytes = base64.b64decode(depth_b64)
-    with open("/tmp/depth_debug.png", "wb") as f:
-        f.write(depth_bytes)
-
     t_segmentation_start = time.perf_counter()
     food_mask, mask_scores = segment_food(pillow_image) # (H, W) uint8 0/1
     food_pixel_count = int(food_mask.sum())
     food_coverage_pct = food_pixel_count / food_mask.size * 100
     logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter()-t_segmentation_start:.3f}s)")
+
+    t_scale_start = time.perf_counter()
+    depth_map_corrected, raw_plate_depth, alpha, plane_normal = apply_scale_correction(depth_map, food_mask, image_info)
+    logger.info(f"[D] Scale correction done. ({time.perf_counter()-t_scale_start:.3f}s)")
+
+    t_volume_start = time.perf_counter()
+    volume_res = compute_volume(
+        depth_map=depth_map,
+        food_mask=food_mask,
+        image_info=image_info,
+        estimated_plate_depth_m=raw_plate_depth,
+        alpha=alpha
+    )
+    logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm³. ({time.perf_counter()-t_volume_start:.3f}s)")
+
+    # Render and save the depth map
+    depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
+    depth_bytes = base64.b64decode(depth_b64)
+    with open("/tmp/depth_debug.png", "wb") as f:
+        f.write(depth_bytes)
 
     # Render and save the segmentation mask
     seg_b64 = overlay_food_mask_b64(pillow_image, food_mask, mask_scores)
@@ -310,7 +427,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
 
     return VolumeEstimateResponse(
         volume_cm3=1,
-        confidence="high",
+        confidence=confidence,
         food_pixel_count=1,
         food_coverage_pct=1,
         max_food_height_cm=1,
