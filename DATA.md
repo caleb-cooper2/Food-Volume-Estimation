@@ -81,3 +81,8 @@ done < download_list.txt
 
 echo "Done"
 ```
+
+# With gcloud
+```bash
+gcloud storage cp -r "gs://nutrition5k_dataset/nutrition5k_dataset/imagery/realsense_overhead" .
+```
