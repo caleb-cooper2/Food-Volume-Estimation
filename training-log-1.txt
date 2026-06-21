@@ -1,3 +1,5 @@
+(models/trained-full-no-tilt.pt)
+
 (.venv) [cco139@cs25051kx ~/IdeaProjects/volume-estimation]$ python train.py
 [10:54:22] INFO Device: cuda
 [10:54:22] INFO Mass col raw: min=1.0  mean=177.5  max=7975.0
