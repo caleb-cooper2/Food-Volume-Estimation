@@ -360,7 +360,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ConvNeXt-Tiny volume regression — Nutrition5K")
-    parser.add_argument("--data_root",     type=str, default="./data/nutrition5k",
+    parser.add_argument("--data_root",     type=str, default="./data/nutrition5k_dataset",
                         help="Root of downloaded Nutrition5K dataset")
     parser.add_argument("--metadata",      type=str, default="./data/dish_metadata_cafe1.csv",
                         help="Path to dish_metadata_cafe1.csv or cafe2.csv")
