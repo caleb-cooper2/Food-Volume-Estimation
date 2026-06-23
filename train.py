@@ -33,17 +33,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
     """
-    Simulate a handheld overhead photo by rotating the virtual camera
-    forward about the X-axis (tilting toward the far edge of the plate).
+    Simulate a more realistic handheld photo by rotating the virtual camera forward about the X-axis (tilting toward the far edge of the plate).
 
-    Each corner of the source image is projected into 3D space, rotated,
-    then projected back to 2D via perspective division. The resulting
-    4-point correspondence is used to compute the warp homography.
-
-    focal_px = image_w places the virtual camera at a distance that keeps
-    the full plate visible across all supported tilt angles (0–45°).
+    Each corner of the source image is projected into 3D space, rotated, then projected back to 2D via perspective division.
+    The resulting 4-point correspondence is used to compute the warp homography.
     """
     tilt_deg = float(np.random.choice([0, 15, 25, 35, 45], p=[0.1, 0.2, 0.3, 0.3, 0.1]))
     if tilt_deg == 0:
@@ -101,6 +97,7 @@ def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=border_fill
     )
+
 
 class Nutrition5KDataset(Dataset):
     """
