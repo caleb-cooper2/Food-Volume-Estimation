@@ -16,6 +16,7 @@ import logging
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pandas as pd
 import torch
@@ -32,6 +33,74 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
+    """
+    Simulate a handheld overhead photo by rotating the virtual camera
+    forward about the X-axis (tilting toward the far edge of the plate).
+
+    Each corner of the source image is projected into 3D space, rotated,
+    then projected back to 2D via perspective division. The resulting
+    4-point correspondence is used to compute the warp homography.
+
+    focal_px = image_w places the virtual camera at a distance that keeps
+    the full plate visible across all supported tilt angles (0–45°).
+    """
+    tilt_deg = float(np.random.choice([0, 15, 25, 35, 45], p=[0.1, 0.2, 0.3, 0.3, 0.1]))
+    if tilt_deg == 0:
+        return rgb
+
+    height, width = rgb.shape[:2]
+
+    # Project each source corner through 3D rotation and back to 2D
+    source_corners = np.array([
+        [0, 0],
+        [width, 0],
+        [width, height],
+        [0, height],
+    ], dtype=np.float32)
+
+    principal_x = width / 2.0
+    principal_y = height / 2.0
+    focal_px = float(width)
+    camera_z = focal_px # virtual camera sits one focal length above the plate
+
+    cos_t = np.cos(np.radians(tilt_deg))
+    sin_t = np.sin(np.radians(tilt_deg))
+
+    destination_corners = []
+    for x, y in source_corners:
+        # Shift origin to image centre before rotating
+        x_origin = x - principal_x
+        y_origin = y - principal_y
+
+        # X-axis rotation: far edge (positive Y) rotates away from camera
+        x_rotation = x_origin
+        y_rotation = y_origin * cos_t
+        z_rotation = y_origin * sin_t
+
+        # Perspective projection back to pixel space
+        x_projection = focal_px * (x_rotation / (camera_z - z_rotation)) + principal_x
+        y_projection = focal_px * (y_rotation / (camera_z - z_rotation)) + principal_y
+        destination_corners.append([x_projection, y_projection])
+
+    destination_corners = np.array(destination_corners, dtype=np.float32)
+    homography = cv2.getPerspectiveTransform(source_corners, destination_corners)
+
+    # Fill exposed border pixels with the mean edge colour of the original image so the model doesn't learn fill colour as a tilt cue
+    border_pixels = np.concatenate([
+        rgb[:10, :].reshape(-1, 3),
+        rgb[-10:, :].reshape(-1, 3),
+        rgb[:, :10].reshape(-1, 3),
+        rgb[:, -10:].reshape(-1, 3),
+    ])
+    border_fill = tuple(int(mean) for mean in border_pixels.mean(axis=0))
+
+    return cv2.warpPerspective(
+        rgb, homography, (width, height),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=border_fill
+    )
 
 class Nutrition5KDataset(Dataset):
     """
@@ -66,8 +135,11 @@ class Nutrition5KDataset(Dataset):
         dish_dir = self.root / "imagery/realsense_overhead" / dish_id
 
         rgb = np.array(Image.open(dish_dir / "rgb.png").convert("RGB"))
-        volume_cm3 = self.volume_lookup[dish_id]
 
+        if self.augment_tilt:
+            rgb = apply_random_tilt(rgb)
+
+        volume_cm3 = self.volume_lookup[dish_id]
         rgb_tensor = self.transform(Image.fromarray(rgb))
 
         return {
