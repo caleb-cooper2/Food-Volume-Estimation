@@ -194,7 +194,7 @@ def get_transforms(img_size: int = 224):
         transforms.Normalize(
             mean=[0.485, 0.456, 0.406], # ImageNet mean
             std=[0.229, 0.224, 0.225] # ImageNet std
-        ),
+        )
     ])
 
     val_transform = transforms.Compose([
@@ -234,9 +234,9 @@ def train_one_epoch(
     model.train()
 
     total_loss = 0.0
-    all_preds  = []
+    all_preds = []
     all_targets = []
-    t_start    = time.perf_counter()
+    t_start = time.perf_counter()
 
     for batch_idx, batch in enumerate(loader):
         rgb = batch["rgb"].to(device)
@@ -264,7 +264,7 @@ def train_one_epoch(
                 f"loss={loss.item():.2f}"
             )
 
-    all_preds   = torch.cat(all_preds)
+    all_preds = torch.cat(all_preds)
     all_targets = torch.cat(all_targets)
 
     return {
@@ -301,7 +301,7 @@ def validate(
         all_preds.append(pred.cpu())
         all_targets.append(target.cpu())
 
-    all_preds   = torch.cat(all_preds)
+    all_preds = torch.cat(all_preds)
     all_targets = torch.cat(all_targets)
 
     return {
@@ -413,7 +413,7 @@ def main(args):
     loss_fn = nn.HuberLoss(delta=50.0)
 
     head_params = list(model.classifier.parameters())
-    optimiser   = torch.optim.AdamW(head_params, lr=args.lr, weight_decay=1e-4)
+    optimiser = torch.optim.AdamW(head_params, lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs * len(train_loader))
 
     best_val_mape = float("inf")
