@@ -42,7 +42,9 @@ nvidia-nvshmem-cu12==3.4.5
 nvidia-nvshmem-cu13==3.4.5
 nvidia-nvtx==13.0.85
 nvidia-nvtx-cu12==12.8.90
+opencv-python==4.13.0.92
 pandas==3.0.3
+pandas-stubs==3.0.3.260530
 pillow==12.2.0
 pillow_heif==1.4.0
 python-dateutil==2.9.0.post0
