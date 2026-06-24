@@ -1,7 +1,7 @@
 """
 ConvNeXt-Tiny volume regression trainer on Nutrition5k dataset
 
-Using the following tutorials:
+Using the following tutorials as a starting point:
 - https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
 - https://medium.com/exemplifyml-ai/image-classification-with-resnet-convnext-using-pytorch-f051d0d7e098
 
