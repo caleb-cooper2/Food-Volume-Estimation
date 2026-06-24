@@ -12,7 +12,6 @@ from PIL import Image
 
 from pillow_heif import register_heif_opener
 register_heif_opener()
-from sklearn.linear_model import RANSACRegressor
 
 import piexif
 import matplotlib
@@ -24,9 +23,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
 
-ASSUMED_CAMERA_HEIGHT_M = 0.30  # 30 cm baseline prior
-SCALE_CORRECTION_TOLERANCE = 0.02  # Skip correction if drift is < 2 cm
-M3_TO_CM3 = 1_000_000.0  # 1 m³ = 10⁶ cm³
+M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10⁶ cm^3
+MAX_LONG_EDGE = 1280 # px
 
 @dataclass
 class VolumeEstimateResponse:
@@ -37,7 +35,6 @@ class VolumeEstimateResponse:
     max_food_height_cm: float
     mean_food_height_cm: float
     plate_depth_m: float
-    scale_correction_factor: float
     intrinsics_source: str
     debug_overlay_b64: Optional[str]
 
@@ -57,7 +54,6 @@ class VolumeResult:
     """Computed volume and intermediate metric values."""
     volume_cm3: float
     plate_depth_m: float
-    scale_correction_factor: float
     max_food_height_cm: float
     mean_food_height_cm: float
 
@@ -139,10 +135,10 @@ def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int
     )
 
 
-def estimate_depth(pillow_image: Image.Image) -> np.ndarray:
+def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
     """
     Predict metric depth map using DepthPro, upsampled to original image resolution.
-    :return: float32 array clipped to [0.1, 5.0] meters.
+    :return: float32 array clipped to [0.1, 5.0] meters and the estimated focal length in pixels.
     """
     original_w, original_h = pillow_image.size
 
@@ -152,37 +148,31 @@ def estimate_depth(pillow_image: Image.Image) -> np.ndarray:
     with torch.no_grad():
         outputs = model(**inputs)
 
-    depth_upsampled = torch.nn.functional.interpolate(
-        outputs.predicted_depth.unsqueeze(1), # (1, 1, H_model, W_model)
-        size=(original_h, original_w), # torch wants (H, W)
-        mode="bilinear",
-        align_corners=False,
-    ).squeeze() # converts to -> (H_orig, W_orig)
+    post_processed = processor.post_process_depth_estimation(
+        outputs,
+        target_sizes=[(original_h, original_w)],
+    )
 
-    depth_map = depth_upsampled.cpu().numpy().astype(np.float32)
+    depth_map = post_processed[0]["predicted_depth"].cpu().numpy().astype(np.float32)
+    focal_length_px = float(post_processed[0]["focal_length"])  # model-estimated fx
 
     logger.info(
-        f"  Depth pre-clip  | "
-        f"min={depth_map.min():.3f}m  "
-        f"p5={np.percentile(depth_map, 5):.3f}m  "
-        f"p25={np.percentile(depth_map, 25):.3f}m  "
+        f"  DepthPro | focal_length_px={focal_length_px:.1f}  "
+        f"depth pre-clip: min={depth_map.min():.3f}m  "
         f"p50={np.percentile(depth_map, 50):.3f}m  "
-        f"p75={np.percentile(depth_map, 75):.3f}m  "
-        f"p95={np.percentile(depth_map, 95):.3f}m  "
         f"max={depth_map.max():.3f}m"
     )
 
     clipped_low = int(np.sum(depth_map < 0.1))
     clipped_high = int(np.sum(depth_map > 5.0))
-    if clipped_low > 0 or clipped_high > 0:
+    if clipped_low or clipped_high:
         logger.warning(
-            f"  Depth clipping  | {clipped_low} px below 0.1m, {clipped_high} px above 5.0m "
-            f"({(clipped_low + clipped_high) / depth_map.size * 100:.1f}% of image)"
+            f"  DepthPro | Clipping {clipped_low} px below 0.1m, "
+            f"{clipped_high} px above 5.0m"
         )
 
     depth_map = np.clip(depth_map, 0.1, 5.0)
-    return depth_map
-
+    return depth_map, focal_length_px
 
 def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = None) -> str:
     """
@@ -325,175 +315,56 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     return union_mask, instance_scores_list
 
 
-def apply_scale_correction(
-        depth_map: np.ndarray,
-        food_mask: np.ndarray,
-        image_info: CameraInfo,
-        assumed_height_m: float = ASSUMED_CAMERA_HEIGHT_M
-) -> tuple[np.ndarray, float, float, np.ndarray | None]:
-    """
-    Estimate plate depth via RANSAC plane fitting on background pixels.
-    Compute scale correction factor α = assumed_height / estimated_plate_depth.
-    Clamps α to [0.5, 2.0] if out of bounds.
-    :return: corrected depth map, plate depth, α, and plane normal
-    """
+def estimate_plate_depth(depth_map, food_mask) -> float:
     bg_mask = food_mask == 0
-    has_background = np.any(bg_mask)
-    plane_normal = None
-
-    if has_background:
-        ys, xs = np.where(bg_mask)
+    if np.any(bg_mask):
         bg_depths = depth_map[bg_mask]
-
+        plate_depth = float(np.median(bg_depths))
         logger.info(
-            f"  ScaleCorr | Background depth distribution: "
-            f"min={bg_depths.min():.3f}m  "
-            f"p25={np.percentile(bg_depths, 25):.3f}m  "
-            f"median={np.median(bg_depths):.3f}m  "
-            f"p75={np.percentile(bg_depths, 75):.3f}m  "
-            f"max={bg_depths.max():.3f}m  "
-            f"std={bg_depths.std():.4f}m  "
-            f"n={len(bg_depths)}"
+            f"  PlateDepth | background pixels={int(bg_mask.sum())}  "
+            f"median={plate_depth:.3f}m  "
+            f"std={bg_depths.std():.4f}m"
         )
-
-        if bg_depths.std() > 0.05:
-            logger.warning(
-                f"  ScaleCorr | Background depth std={bg_depths.std():.4f}m > 0.05m — "
-                f"possible mask leakage or non-flat surface. RANSAC may be unreliable."
-            )
-
-        # Backproject background pixels to 3D using camera model
-        X_bg = (xs - image_info.cx) * bg_depths / image_info.fx
-        Y_bg = (ys - image_info.cy) * bg_depths / image_info.fy
-        points_3d = np.stack([X_bg, Y_bg, bg_depths], axis=1)
-
-        if len(points_3d) >= 10:
-            try:
-                ransac = RANSACRegressor(
-                    residual_threshold=0.015,
-                    max_trials=200,
-                    min_samples=0.1,
-                    random_state=42,
-                )
-                ransac.fit(points_3d[:, :2], points_3d[:, 2])
-                inlier_mask = ransac.inlier_mask_
-
-                inlier_count = int(inlier_mask.sum())
-                inlier_ratio = inlier_count / len(points_3d)
-                inlier_depths = bg_depths[inlier_mask]
-
-                logger.info(
-                    f"  ScaleCorr | RANSAC inliers: {inlier_count}/{len(points_3d)} "
-                    f"({inlier_ratio*100:.1f}%)"
-                )
-                logger.info(
-                    f"  ScaleCorr | Inlier depth: "
-                    f"min={inlier_depths.min():.3f}m  "
-                    f"median={np.median(inlier_depths):.3f}m  "
-                    f"max={inlier_depths.max():.3f}m  "
-                    f"std={inlier_depths.std():.4f}m"
-                )
-
-                if inlier_ratio < 0.3:
-                    logger.warning(
-                        f"  ScaleCorr | Low inlier ratio ({inlier_ratio*100:.1f}%) — "
-                        f"plane fit is weak. Background may be cluttered or mask may be wrong."
-                    )
-
-                estimated_plate_depth = float(np.median(inlier_depths))
-
-                # Fit plane equation: Z = a*X + b*Y + c
-                a, b = ransac.estimator_.coef_
-                normal_unnorm = np.array([-a, -b, 1.0])
-                plane_normal = normal_unnorm / np.linalg.norm(normal_unnorm)
-
-                tilt_deg = float(np.degrees(np.arccos(np.clip(plane_normal[2], -1.0, 1.0))))
-                logger.info(
-                    f"  ScaleCorr | Plane normal=[{plane_normal[0]:.3f}, {plane_normal[1]:.3f}, {plane_normal[2]:.3f}]  "
-                    f"tilt={tilt_deg:.1f}° from nadir"
-                )
-                if tilt_deg > 20.0:
-                    logger.warning(
-                        f"  ScaleCorr | Camera tilt {tilt_deg:.1f}° > 20° — "
-                        f"volume will be overestimated without tilt correction"
-                    )
-
-            except Exception as e:
-                logger.warning(f"  ScaleCorr | RANSAC failed: {e} — falling back to median")
-                estimated_plate_depth = float(np.median(bg_depths))
-        else:
-            logger.warning(f"  ScaleCorr | Only {len(points_3d)} background points — too few for RANSAC, using median")
-            estimated_plate_depth = float(np.median(bg_depths))
     else:
-        logger.warning("  ScaleCorr | No background pixels — scale correction unreliable")
-        estimated_plate_depth = float(np.median(depth_map))
-
-    naive_median = float(np.median(depth_map[bg_mask])) if has_background else float(np.median(depth_map))
-    logger.info(
-        f"  ScaleCorr | Plate depth: RANSAC={estimated_plate_depth*100:.1f}cm  "
-        f"naive_median={naive_median*100:.1f}cm  "
-        f"prior={assumed_height_m*100:.1f}cm"
-    )
-
-    scale_correction_factor = assumed_height_m / estimated_plate_depth
-    logger.info(f"  ScaleCorr | α = {assumed_height_m:.3f} / {estimated_plate_depth:.3f} = {scale_correction_factor:.4f}")
-
-    # Clamp α to reasonable range; extreme values indicate depth estimation failure
-    if not (0.5 <= scale_correction_factor <= 2.0):
-        logger.warning(
-            f"  ScaleCorr | α={scale_correction_factor:.4f} outside [0.5, 2.0] — clamping to 1.0. "
-            f"Plate depth ({estimated_plate_depth*100:.1f}cm) far from prior ({assumed_height_m*100:.1f}cm)."
-        )
-        scale_correction_factor = 1.0
-
-    return depth_map.copy(), estimated_plate_depth, scale_correction_factor, plane_normal
+        plate_depth = float(np.median(depth_map))
+        logger.warning(f"  PlateDepth | No background pixels... using full-image median ({plate_depth:.3f}m)")
+    return plate_depth
 
 
 def compute_volume(
         depth_map: np.ndarray,
         food_mask: np.ndarray,
         image_info: CameraInfo,
-        estimated_plate_depth_m: float,
-        scale_correction_factor: float,
+        plate_depth_m: float,
 ) -> VolumeResult:
     """
     Integrate volume from height field: sum(h * pixel_area).
-    Heights computed as h = plate_depth_corrected - Z_food_corrected.
+    Heights computed as h = plate_depth - Z_food, using DepthPro's metric depth directly.
     """
     food_pixels = food_mask > 0
 
     if not np.any(food_pixels):
-        logger.warning("  Volume | No food pixels — returning zero volume")
-        return VolumeResult(0.0, estimated_plate_depth_m, scale_correction_factor, 0.0, 0.0)
+        logger.warning("  Volume | No food pixels :( returning zero volume")
+        return VolumeResult(0.0, plate_depth_m, 0.0, 0.0)
 
     food_depths = depth_map[food_pixels]
-    food_depths_corrected = food_depths * scale_correction_factor
-    plate_depth_corrected = estimated_plate_depth_m * scale_correction_factor
 
     logger.info(
-        f"  Volume | Food pixel depth (raw): "
+        f"  Volume | Food pixel depth: "
         f"min={food_depths.min():.3f}m  median={np.median(food_depths):.3f}m  max={food_depths.max():.3f}m"
     )
-    logger.info(
-        f"  Volume | Corrected food depth: "
-        f"min={food_depths_corrected.min():.3f}m  median={np.median(food_depths_corrected):.3f}m  max={food_depths_corrected.max():.3f}m"
-    )
-    logger.info(
-        f"  Volume | Plate surface (corrected)={plate_depth_corrected:.3f}m  "
-        f"Expected food above this — if food depth > plate depth, heights will clip to 0"
-    )
+    logger.info(f"  Volume | Plate surface={plate_depth_m:.3f}m")
 
     # Height above plate surface (negative values clipped to 0)
-    heights_m = plate_depth_corrected - food_depths_corrected
-    n_clipped_negative = int(np.sum(heights_m < 0))
+    heights_m = plate_depth_m - food_depths
+    n_clipped = int(np.sum(heights_m < 0))
     heights_m = np.clip(heights_m, 0.0, None)
 
     nonzero_heights = heights_m[heights_m > 0]
     if len(nonzero_heights) == 0:
         logger.warning(
-            f"  Volume | ALL height values are <= 0 after clipping. "
-            f"Food pixels appear deeper than plate surface. "
-            f"Scale correction or segmentation is wrong."
+            "  Volume | ALL height values are <= 0 after clipping. "
+            "Food pixels appear deeper than plate surface. Segmentation or depth may be wrong."
         )
     else:
         logger.info(
@@ -501,11 +372,10 @@ def compute_volume(
             f"min={nonzero_heights.min()*100:.2f}  "
             f"mean={nonzero_heights.mean()*100:.2f}  "
             f"max={nonzero_heights.max()*100:.2f}  "
-            f"| {n_clipped_negative} px clipped to 0 "
-            f"({n_clipped_negative/len(heights_m)*100:.1f}%)"
+            f"| {n_clipped} px clipped to 0 ({n_clipped/len(heights_m)*100:.1f}%)"
         )
 
-    # Pixel area in world coordinates
+    # Pixel area in world coordinates at each food pixel's depth
     pixel_area_m2 = (food_depths / image_info.fx) * (food_depths / image_info.fy)
     logger.info(
         f"  Volume | Pixel area (cm²): "
@@ -520,7 +390,7 @@ def compute_volume(
     total_volume_cm3 = total_volume_m3 * M3_TO_CM3
 
     logger.info(
-        f"  Volume | Integration: sum(dV)={total_volume_m3:.8f} m³ = {total_volume_cm3:.2f} cm³  "
+        f"  Volume | Integration: sum(dV)={total_volume_m3:.8f} m^3 = {total_volume_cm3:.2f} cm^3  "
         f"| food_pixels={int(food_pixels.sum())}  fx={image_info.fx:.0f}  fy={image_info.fy:.0f}"
     )
 
@@ -529,10 +399,9 @@ def compute_volume(
 
     return VolumeResult(
         volume_cm3=total_volume_cm3,
-        plate_depth_m=estimated_plate_depth_m,
-        scale_correction_factor=scale_correction_factor,
+        plate_depth_m=plate_depth_m,
         max_food_height_cm=max_h_cm,
-        mean_food_height_cm=mean_h_cm
+        mean_food_height_cm=mean_h_cm,
     )
 
 
@@ -543,8 +412,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     1. Extract camera intrinsics from EXIF
     2. Estimate metric depth map (DepthPro)
     3. Segment food region (SAM 3)
-    4. Correct scale via plate plane fitting (RANSAC)
-    5. Integrate volume from height field
+    4. Integrate volume from height field
     """
     t_start = time.perf_counter()
     confidence = "high"
@@ -580,11 +448,21 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     )
 
     t_depth_start = time.perf_counter()
-    depth_map = estimate_depth(pillow_image)
+    depth_map, focal_length_px = estimate_depth(pillow_image)
     logger.info(
         f"[B] Depth inference done. "
         f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
         f"({time.perf_counter()-t_depth_start:.3f}s)"
+    )
+
+    image_info = CameraInfo(
+        fx=focal_length_px,
+        fy=focal_length_px, # DepthPro predicts horizontal FOV; assume square pixels
+        cx=actual_w / 2.0,
+        cy=actual_h / 2.0,
+        image_width=actual_w,
+        image_height=actual_h,
+        source="depthpro_fov",
     )
 
     t_segmentation_start = time.perf_counter()
@@ -593,19 +471,13 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     food_coverage_pct = food_pixel_count / food_mask.size * 100
     logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
 
-    t_scale_start = time.perf_counter()
-    depth_map_corrected, raw_plate_depth, alpha, plane_normal = apply_scale_correction(depth_map, food_mask, image_info)
-    logger.info(f"[D] Scale correction done. ({time.perf_counter() - t_scale_start:.3f}s)")
+    t_plate_depth_start = time.perf_counter()
+    plate_depth_m = estimate_plate_depth(depth_map, food_mask)
+    logger.info(f"[D] Plate depth: {plate_depth_m:.3f}m ({time.perf_counter() - t_plate_depth_start:.3f}s)")
 
     t_volume_start = time.perf_counter()
-    volume_res = compute_volume(
-        depth_map=depth_map,
-        food_mask=food_mask,
-        image_info=image_info,
-        estimated_plate_depth_m=raw_plate_depth,
-        scale_correction_factor=alpha
-    )
-    logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm³. ({time.perf_counter() - t_volume_start:.3f}s)")
+    volume_res = compute_volume(depth_map, food_mask, image_info, plate_depth_m)
+    logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
     # Render debug visualisations
     depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
@@ -629,7 +501,6 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         max_food_height_cm=volume_res.max_food_height_cm,
         mean_food_height_cm=volume_res.mean_food_height_cm,
         plate_depth_m=volume_res.plate_depth_m,
-        scale_correction_factor=volume_res.scale_correction_factor,
         intrinsics_source=image_info.source,
         debug_overlay_b64=seg_b64
     )
