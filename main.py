@@ -23,7 +23,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
 
-M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10⁶ cm^3
+M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
 
 @dataclass
@@ -77,14 +77,15 @@ elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
 else:
     device = "cpu"
 
+torch_dtype = torch.bfloat16
 torch_device = torch.device(device)
 processor = DepthProImageProcessor.from_pretrained("apple/DepthPro-hf")
-model = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf").to(torch_device)
+model = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype).to(torch_device)
 model.eval()
 logger.info("Depth model loaded successfully.")
 
 sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
-sam3_model = Sam3Model.from_pretrained("facebook/sam3").to(torch_device)
+sam3_model = Sam3Model.from_pretrained("facebook/sam3", torch_dtype=torch_dtype).to(torch_device)
 sam3_model.eval()
 logger.info("SAM 3 loaded.")
 
@@ -153,7 +154,7 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
         target_sizes=[(original_h, original_w)],
     )
 
-    depth_map = post_processed[0]["predicted_depth"].cpu().numpy().astype(np.float32)
+    depth_map = post_processed[0]["predicted_depth"].float().cpu().numpy().astype(np.float32)
     focal_length_px = float(post_processed[0]["focal_length"])  # model-estimated fx
 
     logger.info(
