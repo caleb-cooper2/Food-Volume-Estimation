@@ -54,8 +54,8 @@ export HF_TOKEN=hf_your_token_here
 
 ### Run the Server
 ```bash
-source server/.venv/bin/activate  # if not already active
-uvicorn server.main:app --reload
+source .venv/bin/activate  # if not already active
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The API will be available at `http://localhost:8000`. On first run, both models (~4.5GB total) will be downloaded and cached to `~/.cache/huggingface/`.
