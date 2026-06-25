@@ -27,6 +27,7 @@ from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
+MAX_FOOD_HEIGHT_M = 0.15
 
 @dataclass
 class VolumeEstimateResponse:
@@ -386,7 +387,7 @@ def compute_volume(
     # Height above plate surface (negative values clipped to 0)
     heights_m = plate_depth_m - food_depths
     n_clipped = int(np.sum(heights_m < 0))
-    heights_m = np.clip(heights_m, 0.0, None)
+    heights_m = np.clip(heights_m, 0.0, MAX_FOOD_HEIGHT_M)
 
     nonzero_heights = heights_m[heights_m > 0]
     if len(nonzero_heights) == 0:
