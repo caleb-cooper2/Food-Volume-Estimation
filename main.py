@@ -26,7 +26,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
-M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10⁶ cm^3
 MAX_LONG_EDGE = 1280 # px
 
 @dataclass
