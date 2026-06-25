@@ -8,8 +8,10 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn as nn
+from torchvision import transforms
+import torchvision.models as models
 from PIL import Image
-
 from pillow_heif import register_heif_opener
 register_heif_opener()
 
@@ -24,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
+M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10⁶ cm^3
 MAX_LONG_EDGE = 1280 # px
 
 @dataclass
@@ -89,6 +92,31 @@ sam3_model = Sam3Model.from_pretrained("facebook/sam3", torch_dtype=torch_dtype)
 sam3_model.eval()
 logger.info("SAM 3 loaded.")
 
+_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+def load_model(model_path: str) -> nn.Module:
+    """
+    Loads a custom trained model using torchvisions convnext_tiny.
+    Matches setup of the training.
+    """
+    model = models.convnext_tiny(weights=None)
+    model.classifier[2] = nn.Sequential(
+        nn.Linear(768, 256),
+        nn.GELU(),
+        nn.Dropout(0.3),
+        nn.Linear(256, 1),
+        nn.Softplus()
+    )
+    checkpoint = torch.load(model_path, map_location=device)
+    model.load_state_dict(checkpoint["state_dict"])
+    return model.to(device).eval()
+
+custom_model = load_model("models/trained-full-tilt.pt")
+logger.info("Custom model loaded.")
 
 def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int) -> CameraInfo:
     """
@@ -505,3 +533,43 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         intrinsics_source=image_info.source,
         debug_overlay_b64=seg_b64
     )
+
+@torch.no_grad()
+def custom_model(image: Image.Image) -> float:
+    """Estimate volume using custom trained model weights"""
+    tensor = _transform(image).unsqueeze(0).to(device)
+    return custom_model(tensor).squeeze().item()
+
+@app.post("/api/v1/estimate-volume-dl")
+async def volume_estimation_dl(file: UploadFile = File(...)):
+    """
+    End-to-end volume estimation pipeline using deep learning model.
+    """
+    t_start = time.perf_counter()
+
+    if file.content_type not in ("image/jpeg", "image/jpg", "image/png", "image/heic"):
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported media type '{file.content_type}'. Send JPEG or PNG only",
+        )
+
+    image_bytes = await file.read()
+
+    if len(image_bytes) < 1024:
+        raise HTTPException(status_code=400, detail="Image too small -> minimum 1 KB")
+    if len(image_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large -> maximum 30 MB")
+
+    # Decode PIL image ONCE early so we have true pixel geometry
+    try:
+        pillow_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
+
+    with torch.no_grad():
+        volume = custom_model(pillow_image)
+
+    logger.info(f"Model estimated volume: {volume:.2f} cm^3")
+
+    t_total = time.perf_counter() - t_start
+    logger.info(f"Total pipeline time: {t_total:.3f}s")

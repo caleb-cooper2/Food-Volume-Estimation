@@ -1,0 +1,1 @@
+On bagel (20230927_102352.jpg) from SimpleFood45, ground truth volume is 298.98, without tilt estimates 225.88 cm^3, with tilt estimates 189.42 cm^3
