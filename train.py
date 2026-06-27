@@ -133,14 +133,29 @@ class Nutrition5KDataset(Dataset):
 
         rgb = np.array(Image.open(dish_dir / "rgb.png").convert("RGB"))
 
-        if self.augment_tilt:
-            rgb = apply_random_tilt(rgb)
+        depth_raw = cv2.imread(str(dish_dir / "depth_raw.png"), cv2.IMREAD_UNCHANGED)
+        depth_m = depth_raw.astype(np.float32) / 10000.0 # convert to float32 meters
+
+        # if self.augment_tilt:
+        #     rgb = apply_random_tilt(rgb)
 
         volume_cm3 = self.volume_lookup[dish_id]
+
         rgb_tensor = self.transform(Image.fromarray(rgb))
 
+        depth_resized = cv2.resize(
+            depth_m,
+            (rgb_tensor.shape[2], rgb_tensor.shape[1]),  # (W, H)
+            interpolation=cv2.INTER_NEAREST
+        )
+        # convert resized depth to tensor (1, H, W) and ensure float32
+        depth_tensor = torch.from_numpy(depth_resized).unsqueeze(0).to(torch.float32)
+
+        rgb_depth_tensor = torch.cat([rgb_tensor, depth_tensor], dim=0)
+
         return {
-            "rgb": rgb_tensor,
+            # provide 4-channel (RGB + depth) tensor to model
+            "rgb": rgb_depth_tensor,
             "volume_cm3": torch.tensor(volume_cm3, dtype=torch.float32),
             "dish_id": dish_id
         }
@@ -149,9 +164,27 @@ class Nutrition5KDataset(Dataset):
 def build_model(freeze_backbone: bool = False) -> nn.Module:
     """
     Load pretrained ConvNeXt-Tiny and replace classification head with regression head.
+    Also replace first convolution to accept 4-channel input (RGB + depth).
     If freeze_backbone=True, keep backbone frozen and only enable classifier gradients.
     """
     model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
+
+    first_conv = model.features[0][0]
+    new_conv = nn.Conv2d(
+        4,
+        first_conv.out_channels,
+        kernel_size=first_conv.kernel_size,
+        stride=first_conv.stride,
+        padding=first_conv.padding,
+        bias=False,
+    )
+    with torch.no_grad():
+        # Copy RGB weights
+        new_conv.weight[:, :3] = first_conv.weight
+        # Initialise depth channel to mean of RGB weights
+        new_conv.weight[:, 3:] = first_conv.weight.mean(dim=1, keepdim=True)
+
+    model.features[0][0] = new_conv
 
     if freeze_backbone:
         for param in model.parameters():
