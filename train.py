@@ -16,15 +16,16 @@ import logging
 import time
 from pathlib import Path
 
+import albumentations as A
 import cv2
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torchvision.models as models
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision import transforms
-import torchvision.models as models
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,12 +111,16 @@ class Nutrition5KDataset(Dataset):
             dish_ids: list[str],
             volume_lookup: dict[str, float],
             transform,
+            spatial_aug: A.Compose | None,
+            photometric_aug: A.Compose | None,
             augment_tilt: bool = True
     ):
         self.root = Path(data_root)
         self.transform = transform
         self.augment_tilt = augment_tilt
         self.volume_lookup = volume_lookup
+        self.spatial_aug = spatial_aug
+        self.photometric_aug = photometric_aug
 
         self.samples = [
             d for d in dish_ids
@@ -136,6 +141,14 @@ class Nutrition5KDataset(Dataset):
         depth_raw = cv2.imread(str(dish_dir / "depth_raw.png"), cv2.IMREAD_UNCHANGED)
         depth_m = depth_raw.astype(np.float32) / 10000.0 # convert to float32 meters
 
+        if self.spatial_aug is not None:
+            augmented = self.spatial_aug(image=rgb, depth=depth_m)
+            rgb = augmented["image"] # (H, W, 3) uint8, now cropped/flipped
+            depth_m = augmented["depth"] # (H, W) float32, same crop/flip applied
+
+        if self.photometric_aug is not None:
+            rgb = self.photometric_aug(image=rgb)["image"]
+
         # if self.augment_tilt:
         #     rgb = apply_random_tilt(rgb)
 
@@ -151,11 +164,9 @@ class Nutrition5KDataset(Dataset):
         # convert resized depth to tensor (1, H, W) and ensure float32
         depth_tensor = torch.from_numpy(depth_resized).unsqueeze(0).to(torch.float32)
 
-        rgb_depth_tensor = torch.cat([rgb_tensor, depth_tensor], dim=0)
-
         return {
             # provide 4-channel (RGB + depth) tensor to model
-            "rgb": rgb_depth_tensor,
+            "rgb": torch.cat([rgb_tensor, depth_tensor], dim=0),
             "volume_cm3": torch.tensor(volume_cm3, dtype=torch.float32),
             "dish_id": dish_id
         }
@@ -210,24 +221,16 @@ def build_model(freeze_backbone: bool = False) -> nn.Module:
 
 def get_transforms(img_size: int = 224):
     """
-    Augmentation for training: flip, color jitter.
-    Deterministic transforms for val/test (resize + normalise only).
+    Val/test: deterministic resize + normalise only.
+    Train: spatial and photometric augmentation is applied in __getitem__
+    so it can operate on both RGB and depth simultaneously.
     """
-    train_transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomVerticalFlip(p=0.1),
-        transforms.ColorJitter(
-            brightness=0.3,
-            contrast=0.3,
-            saturation=0.2,
-            hue=0.05
-        ),
+    train_rgb_finalise = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], # ImageNet mean
-            std=[0.229, 0.224, 0.225] # ImageNet std
-        )
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        ),
     ])
 
     val_transform = transforms.Compose([
@@ -239,7 +242,35 @@ def get_transforms(img_size: int = 224):
         ),
     ])
 
-    return train_transform, val_transform
+    return train_rgb_finalise, val_transform
+
+def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose]:
+    """
+    Spatial augmentation: applied to RGB and depth together via additional_targets.
+    Photometric augmentation: applied to RGB only as depth must not be colour-jittered
+    or blurred (corrupts the geometric signal).
+    """
+    spatial = A.Compose([
+        # RandomResizedCrop handles both resize and scale jitter in one operation,
+        # ensuring the crop boundary is identical for RGB and depth.
+        A.RandomResizedCrop(
+            size=(img_size, img_size),
+            scale=(0.6, 1.0),
+            ratio=(0.9, 1.1),
+            p=1.0
+        ),
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.1)
+    ], additional_targets={"depth": "image"}) # depth gets same spatial transform
+
+    photometric = A.Compose([
+        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+        A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.2),
+        A.GaussNoise(std_range=(5.0, 25.0), p=0.2)
+    ]) # RGB only
+
+    return spatial, photometric
 
 
 def get_mean_absolute_percentage_error(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -392,12 +423,15 @@ def main(args):
     )
 
     train_transform, val_transform = get_transforms(img_size=args.img_size)
+    spatial_aug, photometric_aug = build_train_augmentation(img_size=args.img_size)
 
     full_dataset = Nutrition5KDataset(
         data_root = args.data_root,
         dish_ids = dish_ids,
         volume_lookup = volume_lookup,
         transform = train_transform,
+        spatial_aug = spatial_aug,
+        photometric_aug = photometric_aug,
         augment_tilt = True
     )
 
@@ -419,6 +453,8 @@ def main(args):
         dish_ids = dish_ids,
         volume_lookup = volume_lookup,
         transform = val_transform,
+        spatial_aug = None,
+        photometric_aug = None,
         augment_tilt = False
     )
     test_set.dataset = val_set.dataset
