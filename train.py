@@ -124,8 +124,7 @@ class Nutrition5KDataset(Dataset):
 
         self.samples = [
             d for d in dish_ids
-            if (self.root / "imagery/realsense_overhead" / d / "rgb.png").exists()
-               and d in self.volume_lookup
+            if self._is_valid_dish(d) and d in self.volume_lookup
         ]
         logger.info(f"Dataset: {len(self.samples)}/{len(dish_ids)} dishes (on disk + labelled)")
 
@@ -170,6 +169,19 @@ class Nutrition5KDataset(Dataset):
             "volume_cm3": torch.tensor(volume_cm3, dtype=torch.float32),
             "dish_id": dish_id
         }
+
+    def _is_valid_dish(self, dish_id: str) -> bool:
+        """Check if dish exists and is not corrupted as some from the dataset are?"""
+        dish_dir = self.root / "imagery/realsense_overhead" / dish_id
+        rgb_path = dish_dir / "rgb.png"
+        depth_path = dish_dir / "depth_raw.png"
+
+        if not rgb_path.exists() or not depth_path.exists():
+            return False
+        if rgb_path.stat().st_size == 0 or depth_path.stat().st_size == 0:
+            return False
+
+        return True
 
 
 def build_model(freeze_backbone: bool = False) -> nn.Module:
@@ -267,7 +279,7 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose]
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
         A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
         A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-        A.GaussNoise(std_range=(5.0, 25.0), p=0.2)
+        A.GaussNoise(std_range=(5.0 / 255.0, 255.0 / 255.0) , p=0.2)
     ]) # RGB only
 
     return spatial, photometric

@@ -101,7 +101,7 @@ Each run takes a single metadata CSV. Run once per cafe, or concatenate the two 
 ```bash
 # Train on cafe 1 (default)
 python train.py \
-  --data_root ./data \
+  --data_root ./data/nutrion5k_dataset \
   --metadata ./data/dish_metadata_cafe1.csv \
   --output ./checkpoints \
   --epochs 50 \
@@ -122,7 +122,7 @@ The best checkpoint (by validation MAPE) is saved to `checkpoints/best_model.pt`
 
 | Argument          | Default                          | Description                                              |
 |-------------------|----------------------------------|----------------------------------------------------------|
-| `--data_root`     | `./data`                         | Root directory containing `imagery/` and metadata CSVs   |
+| `--data_root`     | `./data/nutrition5k_dataset`                        | Root directory containing `imagery/` and metadata CSVs   |
 | `--metadata`      | `./data/dish_metadata_cafe1.csv` | Dish metadata CSV to train on                            |
 | `--output`        | `./checkpoints`                  | Directory to save best checkpoint                        |
 | `--epochs`        | `50`                             | Total training epochs                                    |
