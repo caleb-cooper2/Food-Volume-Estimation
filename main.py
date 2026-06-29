@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -104,6 +105,18 @@ def load_model(model_path: str) -> nn.Module:
     Matches setup of the training.
     """
     model = models.convnext_tiny(weights=None)
+
+    first_conv = model.features[0][0]
+    new_conv = nn.Conv2d(
+        4,
+        first_conv.out_channels,
+        kernel_size=first_conv.kernel_size,
+        stride=first_conv.stride,
+        padding=first_conv.padding,
+        bias=False,
+    )
+    model.features[0][0] = new_conv
+
     model.classifier[2] = nn.Sequential(
         nn.Linear(768, 256),
         nn.GELU(),
@@ -115,8 +128,14 @@ def load_model(model_path: str) -> nn.Module:
     model.load_state_dict(checkpoint["state_dict"])
     return model.to(device).eval()
 
-custom_model = load_model("models/trained-full-tilt.pt")
+_custom_model = load_model("models/trained-full-depth.pt")
 logger.info("Custom model loaded.")
+
+_rgb_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
 def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int) -> CameraInfo:
     """
@@ -535,10 +554,15 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     )
 
 @torch.no_grad()
-def custom_model(image: Image.Image) -> float:
+def run_custom_model(image: Image.Image, depth_map: np.ndarray) -> float:
     """Estimate volume using custom trained model weights"""
-    tensor = _transform(image).unsqueeze(0).to(device)
-    return custom_model(tensor).squeeze().item()
+    rgb_tensor = _rgb_transform(image)  # (3, 224, 224)
+
+    depth_resized = cv2.resize(depth_map, (224, 224), interpolation=cv2.INTER_NEAREST)
+    depth_tensor = torch.from_numpy(depth_resized).unsqueeze(0).float()  # (1, 224, 224)
+
+    tensor = torch.cat([rgb_tensor, depth_tensor], dim=0).unsqueeze(0).to(device)  # (1, 4, 224, 224)
+    return _custom_model(tensor).squeeze().item()
 
 @app.post("/api/v1/estimate-volume-dl")
 async def volume_estimation_dl(file: UploadFile = File(...)):
@@ -566,10 +590,10 @@ async def volume_estimation_dl(file: UploadFile = File(...)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
 
-    with torch.no_grad():
-        volume = custom_model(pillow_image)
+    t_depth = time.perf_counter()
+    depth_map, _ = estimate_depth(pillow_image)  # (H, W) float32 metres
+    logger.info(f"[A] DepthPro done ({time.perf_counter() - t_depth:.3f}s)")
 
+    volume = run_custom_model(pillow_image, depth_map)
     logger.info(f"Model estimated volume: {volume:.2f} cm^3")
-
-    t_total = time.perf_counter() - t_start
-    logger.info(f"Total pipeline time: {t_total:.3f}s")
+    logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")

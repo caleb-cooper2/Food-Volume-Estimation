@@ -1,0 +1,434 @@
+(.venv) [cco139@cs25004lx ~/IdeaProjects/volume-estimation]$ python train.py   --data_root ./data/nutrition5k_dataset   --metadata ./data/dish_metadata_cafe1.csv   --output ./checkpoints   --epochs 50   --warmup_epochs 5   --batch 16   --lr 1e-4
+[11:35:58] INFO Device: cuda
+[11:35:58] INFO Mass col raw: min=1.0  mean=177.5  max=7975.0
+[11:35:58] INFO Volume GT: 4260 dishes after filtering (132 removed outside 20.0–1500.0g range)
+[11:35:58] INFO Volume GT stats: min=25.0  mean=217.1  max=1377.5 cm³
+[11:36:04] INFO Dataset: 2792/4392 dishes (on disk + labelled)
+[11:36:04] INFO Dataset: 2792/4392 dishes (on disk + labelled)
+[11:36:04] INFO Split: train=2235 | val=418 | test=139
+[11:36:04] INFO Model: ConvNeXt-Tiny | total=28,018,689 | trainable=198,657
+[11:36:07] INFO   Epoch 1 | batch 20/140 | loss=16231.66
+[11:36:09] INFO   Epoch 1 | batch 40/140 | loss=13257.51
+[11:36:11] INFO   Epoch 1 | batch 60/140 | loss=10830.97
+[11:36:13] INFO   Epoch 1 | batch 80/140 | loss=8711.88
+[11:36:15] INFO   Epoch 1 | batch 100/140 | loss=9166.29
+[11:36:18] INFO   Epoch 1 | batch 120/140 | loss=10569.29
+[11:36:20] INFO   Epoch 1 | batch 140/140 | loss=15083.59
+[11:36:24] INFO Epoch   1/50 | train loss=11001.13  mape=95.6%  mae=244.6cm³ | val   loss=10980.05  mape=89.1%  mae=234.4cm³ | lr=9.99e-05 | time=16.4s
+[11:36:25] INFO   ✓ New best val MAPE=89.1% - saved to checkpoints/best_model.pt
+[11:36:28] INFO   Epoch 2 | batch 20/140 | loss=10796.45
+[11:36:30] INFO   Epoch 2 | batch 40/140 | loss=7412.24
+[11:36:32] INFO   Epoch 2 | batch 60/140 | loss=12434.64
+[11:36:34] INFO   Epoch 2 | batch 80/140 | loss=8715.48
+[11:36:37] INFO   Epoch 2 | batch 100/140 | loss=8184.42
+[11:36:39] INFO   Epoch 2 | batch 120/140 | loss=8754.20
+[11:36:41] INFO   Epoch 2 | batch 140/140 | loss=7467.31
+[11:36:44] INFO Epoch   2/50 | train loss=10240.68  mape=84.9%  mae=229.3cm³ | val   loss=9941.58  mape=75.3%  mae=212.9cm³ | lr=9.96e-05 | time=15.4s
+[11:36:45] INFO   ✓ New best val MAPE=75.3% - saved to checkpoints/best_model.pt
+[11:36:48] INFO   Epoch 3 | batch 20/140 | loss=10020.33
+[11:36:50] INFO   Epoch 3 | batch 40/140 | loss=11456.10
+[11:36:53] INFO   Epoch 3 | batch 60/140 | loss=9095.47
+[11:36:55] INFO   Epoch 3 | batch 80/140 | loss=13246.36
+[11:36:57] INFO   Epoch 3 | batch 100/140 | loss=13849.13
+[11:36:59] INFO   Epoch 3 | batch 120/140 | loss=9340.41
+[11:37:01] INFO   Epoch 3 | batch 140/140 | loss=10809.90
+[11:37:05] INFO Epoch   3/50 | train loss=9244.08  mape=71.9%  mae=208.2cm³ | val   loss=8571.89  mape=61.4%  mae=184.6cm³ | lr=9.91e-05 | time=15.7s
+[11:37:06] INFO   ✓ New best val MAPE=61.4% - saved to checkpoints/best_model.pt
+[11:37:08] INFO   Epoch 4 | batch 20/140 | loss=10376.89
+[11:37:10] INFO   Epoch 4 | batch 40/140 | loss=6620.74
+[11:37:12] INFO   Epoch 4 | batch 60/140 | loss=8780.65
+[11:37:14] INFO   Epoch 4 | batch 80/140 | loss=9023.75
+[11:37:16] INFO   Epoch 4 | batch 100/140 | loss=2712.77
+[11:37:18] INFO   Epoch 4 | batch 120/140 | loss=5929.45
+[11:37:21] INFO   Epoch 4 | batch 140/140 | loss=7869.37
+[11:37:24] INFO Epoch   4/50 | train loss=8009.18  mape=61.2%  mae=182.4cm³ | val   loss=7077.00  mape=56.2%  mae=155.5cm³ | lr=9.84e-05 | time=15.0s
+[11:37:25] INFO   ✓ New best val MAPE=56.2% - saved to checkpoints/best_model.pt
+[11:37:27] INFO   Epoch 5 | batch 20/140 | loss=8074.44
+[11:37:29] INFO   Epoch 5 | batch 40/140 | loss=7265.81
+[11:37:32] INFO   Epoch 5 | batch 60/140 | loss=6070.26
+[11:37:34] INFO   Epoch 5 | batch 80/140 | loss=6525.36
+[11:37:36] INFO   Epoch 5 | batch 100/140 | loss=3177.68
+[11:37:38] INFO   Epoch 5 | batch 120/140 | loss=5411.21
+[11:37:40] INFO   Epoch 5 | batch 140/140 | loss=5284.80
+[11:37:43] INFO Epoch   5/50 | train loss=6773.17  mape=59.0%  mae=157.9cm³ | val   loss=5901.03  mape=61.7%  mae=134.2cm³ | lr=9.76e-05 | time=15.1s
+[11:37:43] INFO --- Phase 2: unfreezing backbone at epoch 6 ---
+[11:37:46] INFO   Epoch 6 | batch 20/140 | loss=4061.04
+[11:37:48] INFO   Epoch 6 | batch 40/140 | loss=4825.46
+[11:37:50] INFO   Epoch 6 | batch 60/140 | loss=6543.14
+[11:37:52] INFO   Epoch 6 | batch 80/140 | loss=4214.60
+[11:37:55] INFO   Epoch 6 | batch 100/140 | loss=2971.18
+[11:37:57] INFO   Epoch 6 | batch 120/140 | loss=4857.23
+[11:38:00] INFO   Epoch 6 | batch 140/140 | loss=3533.47
+[11:38:03] INFO Epoch   6/50 | train loss=5039.42  mape=64.6%  mae=123.4cm³ | val   loss=4239.77  mape=42.7%  mae=99.8cm³ | lr=9.99e-05 | time=16.3s
+[11:38:04] INFO   ✓ New best val MAPE=42.7% - saved to checkpoints/best_model.pt
+[11:38:06] INFO   Epoch 7 | batch 20/140 | loss=4720.64
+[11:38:08] INFO   Epoch 7 | batch 40/140 | loss=3238.45
+[11:38:10] INFO   Epoch 7 | batch 60/140 | loss=7473.29
+[11:38:13] INFO   Epoch 7 | batch 80/140 | loss=4333.62
+[11:38:15] INFO   Epoch 7 | batch 100/140 | loss=5159.47
+[11:38:17] INFO   Epoch 7 | batch 120/140 | loss=2701.58
+[11:38:19] INFO   Epoch 7 | batch 140/140 | loss=4259.20
+[11:38:22] INFO Epoch   7/50 | train loss=3806.09  mape=52.0%  mae=97.8cm³ | val   loss=3207.75  mape=37.8%  mae=81.2cm³ | lr=9.95e-05 | time=15.0s
+[11:38:23] INFO   ✓ New best val MAPE=37.8% - saved to checkpoints/best_model.pt
+[11:38:26] INFO   Epoch 8 | batch 20/140 | loss=4076.64
+[11:38:28] INFO   Epoch 8 | batch 40/140 | loss=2141.14
+[11:38:30] INFO   Epoch 8 | batch 60/140 | loss=3574.25
+[11:38:32] INFO   Epoch 8 | batch 80/140 | loss=4141.73
+[11:38:34] INFO   Epoch 8 | batch 100/140 | loss=1877.43
+[11:38:36] INFO   Epoch 8 | batch 120/140 | loss=3941.99
+[11:38:38] INFO   Epoch 8 | batch 140/140 | loss=1368.42
+[11:38:42] INFO Epoch   8/50 | train loss=3141.43  mape=43.9%  mae=83.7cm³ | val   loss=3200.06  mape=35.9%  mae=81.6cm³ | lr=9.89e-05 | time=14.9s
+[11:38:43] INFO   ✓ New best val MAPE=35.9% - saved to checkpoints/best_model.pt
+[11:38:45] INFO   Epoch 9 | batch 20/140 | loss=3405.10
+[11:38:47] INFO   Epoch 9 | batch 40/140 | loss=3448.52
+[11:38:49] INFO   Epoch 9 | batch 60/140 | loss=4501.19
+[11:38:51] INFO   Epoch 9 | batch 80/140 | loss=2762.04
+[11:38:53] INFO   Epoch 9 | batch 100/140 | loss=1041.49
+[11:38:55] INFO   Epoch 9 | batch 120/140 | loss=1757.70
+[11:38:58] INFO   Epoch 9 | batch 140/140 | loss=1762.59
+[11:39:01] INFO Epoch   9/50 | train loss=2907.52  mape=41.1%  mae=78.8cm³ | val   loss=3117.98  mape=35.4%  mae=79.2cm³ | lr=9.81e-05 | time=15.0s
+[11:39:02] INFO   ✓ New best val MAPE=35.4% - saved to checkpoints/best_model.pt
+[11:39:04] INFO   Epoch 10 | batch 20/140 | loss=2003.93
+[11:39:06] INFO   Epoch 10 | batch 40/140 | loss=3296.84
+[11:39:08] INFO   Epoch 10 | batch 60/140 | loss=3282.18
+[11:39:10] INFO   Epoch 10 | batch 80/140 | loss=2244.14
+[11:39:13] INFO   Epoch 10 | batch 100/140 | loss=1926.46
+[11:39:15] INFO   Epoch 10 | batch 120/140 | loss=1674.17
+[11:39:17] INFO   Epoch 10 | batch 140/140 | loss=1853.85
+[11:39:20] INFO Epoch  10/50 | train loss=2547.26  mape=36.9%  mae=70.9cm³ | val   loss=2421.78  mape=31.8%  mae=66.9cm³ | lr=9.70e-05 | time=15.0s
+[11:39:21] INFO   ✓ New best val MAPE=31.8% - saved to checkpoints/best_model.pt
+[11:39:23] INFO   Epoch 11 | batch 20/140 | loss=2771.81
+[11:39:25] INFO   Epoch 11 | batch 40/140 | loss=2503.36
+[11:39:28] INFO   Epoch 11 | batch 60/140 | loss=1064.23
+[11:39:30] INFO   Epoch 11 | batch 80/140 | loss=2864.95
+[11:39:32] INFO   Epoch 11 | batch 100/140 | loss=1956.32
+[11:39:34] INFO   Epoch 11 | batch 120/140 | loss=1715.71
+[11:39:36] INFO   Epoch 11 | batch 140/140 | loss=886.86
+[11:39:40] INFO Epoch  11/50 | train loss=2477.58  mape=35.4%  mae=69.6cm³ | val   loss=2893.71  mape=32.1%  mae=74.8cm³ | lr=9.57e-05 | time=15.1s
+[11:39:42] INFO   Epoch 12 | batch 20/140 | loss=1525.11
+[11:39:44] INFO   Epoch 12 | batch 40/140 | loss=1937.25
+[11:39:46] INFO   Epoch 12 | batch 60/140 | loss=2716.89
+[11:39:48] INFO   Epoch 12 | batch 80/140 | loss=1986.69
+[11:39:50] INFO   Epoch 12 | batch 100/140 | loss=2081.66
+[11:39:52] INFO   Epoch 12 | batch 120/140 | loss=1341.44
+[11:39:54] INFO   Epoch 12 | batch 140/140 | loss=1287.28
+[11:39:58] INFO Epoch  12/50 | train loss=2361.76  mape=34.3%  mae=66.8cm³ | val   loss=2255.05  mape=30.0%  mae=63.5cm³ | lr=9.41e-05 | time=14.7s
+[11:39:59] INFO   ✓ New best val MAPE=30.0% - saved to checkpoints/best_model.pt
+[11:40:01] INFO   Epoch 13 | batch 20/140 | loss=2699.88
+[11:40:04] INFO   Epoch 13 | batch 40/140 | loss=1447.93
+[11:40:06] INFO   Epoch 13 | batch 60/140 | loss=2722.89
+[11:40:08] INFO   Epoch 13 | batch 80/140 | loss=2560.38
+[11:40:10] INFO   Epoch 13 | batch 100/140 | loss=2372.75
+[11:40:13] INFO   Epoch 13 | batch 120/140 | loss=2859.35
+[11:40:15] INFO   Epoch 13 | batch 140/140 | loss=3902.86
+[11:40:19] INFO Epoch  13/50 | train loss=2324.09  mape=33.8%  mae=66.0cm³ | val   loss=2875.35  mape=31.6%  mae=75.1cm³ | lr=9.24e-05 | time=16.2s
+[11:40:21] INFO   Epoch 14 | batch 20/140 | loss=1776.23
+[11:40:24] INFO   Epoch 14 | batch 40/140 | loss=1583.96
+[11:40:26] INFO   Epoch 14 | batch 60/140 | loss=3130.82
+[11:40:28] INFO   Epoch 14 | batch 80/140 | loss=2451.44
+[11:40:30] INFO   Epoch 14 | batch 100/140 | loss=1908.25
+[11:40:32] INFO   Epoch 14 | batch 120/140 | loss=2189.34
+[11:40:34] INFO   Epoch 14 | batch 140/140 | loss=2632.30
+[11:40:38] INFO Epoch  14/50 | train loss=2173.37  mape=32.7%  mae=63.0cm³ | val   loss=2505.48  mape=28.4%  mae=67.2cm³ | lr=9.05e-05 | time=15.7s
+[11:40:39] INFO   ✓ New best val MAPE=28.4% - saved to checkpoints/best_model.pt
+[11:40:41] INFO   Epoch 15 | batch 20/140 | loss=1287.52
+[11:40:43] INFO   Epoch 15 | batch 40/140 | loss=3460.99
+[11:40:45] INFO   Epoch 15 | batch 60/140 | loss=1775.49
+[11:40:47] INFO   Epoch 15 | batch 80/140 | loss=2068.81
+[11:40:49] INFO   Epoch 15 | batch 100/140 | loss=1466.56
+[11:40:52] INFO   Epoch 15 | batch 120/140 | loss=4109.37
+[11:40:53] INFO   Epoch 15 | batch 140/140 | loss=3659.84
+[11:40:57] INFO Epoch  15/50 | train loss=2114.24  mape=31.7%  mae=61.6cm³ | val   loss=2015.20  mape=27.7%  mae=58.6cm³ | lr=8.83e-05 | time=14.8s
+[11:40:58] INFO   ✓ New best val MAPE=27.7% - saved to checkpoints/best_model.pt
+[11:41:00] INFO   Epoch 16 | batch 20/140 | loss=1662.75
+[11:41:02] INFO   Epoch 16 | batch 40/140 | loss=1826.14
+[11:41:04] INFO   Epoch 16 | batch 60/140 | loss=2824.72
+[11:41:06] INFO   Epoch 16 | batch 80/140 | loss=1139.80
+[11:41:08] INFO   Epoch 16 | batch 100/140 | loss=2293.87
+[11:41:11] INFO   Epoch 16 | batch 120/140 | loss=1256.76
+[11:41:13] INFO   Epoch 16 | batch 140/140 | loss=1814.74
+[11:41:16] INFO Epoch  16/50 | train loss=2034.66  mape=30.5%  mae=59.8cm³ | val   loss=2117.60  mape=27.2%  mae=60.7cm³ | lr=8.60e-05 | time=15.2s
+[11:41:17] INFO   ✓ New best val MAPE=27.2% - saved to checkpoints/best_model.pt
+[11:41:20] INFO   Epoch 17 | batch 20/140 | loss=827.48
+[11:41:22] INFO   Epoch 17 | batch 40/140 | loss=2699.75
+[11:41:24] INFO   Epoch 17 | batch 60/140 | loss=1638.39
+[11:41:26] INFO   Epoch 17 | batch 80/140 | loss=3002.71
+[11:41:28] INFO   Epoch 17 | batch 100/140 | loss=3417.06
+[11:41:31] INFO   Epoch 17 | batch 120/140 | loss=1229.78
+[11:41:33] INFO   Epoch 17 | batch 140/140 | loss=749.08
+[11:41:37] INFO Epoch  17/50 | train loss=1966.94  mape=29.9%  mae=58.4cm³ | val   loss=2160.32  mape=27.9%  mae=61.2cm³ | lr=8.35e-05 | time=15.7s
+[11:41:39] INFO   Epoch 18 | batch 20/140 | loss=3383.00
+[11:41:41] INFO   Epoch 18 | batch 40/140 | loss=2687.35
+[11:41:43] INFO   Epoch 18 | batch 60/140 | loss=2185.60
+[11:41:45] INFO   Epoch 18 | batch 80/140 | loss=2414.12
+[11:41:47] INFO   Epoch 18 | batch 100/140 | loss=1696.07
+[11:41:50] INFO   Epoch 18 | batch 120/140 | loss=2009.16
+[11:41:52] INFO   Epoch 18 | batch 140/140 | loss=1102.53
+[11:41:55] INFO Epoch  18/50 | train loss=1926.15  mape=29.2%  mae=57.4cm³ | val   loss=1944.64  mape=25.6%  mae=57.3cm³ | lr=8.08e-05 | time=15.0s
+[11:41:56] INFO   ✓ New best val MAPE=25.6% - saved to checkpoints/best_model.pt
+[11:41:59] INFO   Epoch 19 | batch 20/140 | loss=2537.49
+[11:42:01] INFO   Epoch 19 | batch 40/140 | loss=1434.10
+[11:42:03] INFO   Epoch 19 | batch 60/140 | loss=3482.72
+[11:42:05] INFO   Epoch 19 | batch 80/140 | loss=1827.72
+[11:42:07] INFO   Epoch 19 | batch 100/140 | loss=1905.68
+[11:42:09] INFO   Epoch 19 | batch 120/140 | loss=3418.24
+[11:42:11] INFO   Epoch 19 | batch 140/140 | loss=2599.72
+[11:42:15] INFO Epoch  19/50 | train loss=1889.25  mape=29.5%  mae=56.6cm³ | val   loss=2093.55  mape=25.7%  mae=60.0cm³ | lr=7.80e-05 | time=15.3s
+[11:42:17] INFO   Epoch 20 | batch 20/140 | loss=2433.37
+[11:42:19] INFO   Epoch 20 | batch 40/140 | loss=1665.09
+[11:42:21] INFO   Epoch 20 | batch 60/140 | loss=4824.38
+[11:42:23] INFO   Epoch 20 | batch 80/140 | loss=2163.31
+[11:42:25] INFO   Epoch 20 | batch 100/140 | loss=533.05
+[11:42:27] INFO   Epoch 20 | batch 120/140 | loss=1787.05
+[11:42:29] INFO   Epoch 20 | batch 140/140 | loss=2259.17
+[11:42:33] INFO Epoch  20/50 | train loss=1860.16  mape=29.0%  mae=56.0cm³ | val   loss=2265.58  mape=28.8%  mae=63.4cm³ | lr=7.50e-05 | time=14.6s
+[11:42:35] INFO   Epoch 21 | batch 20/140 | loss=2231.55
+[11:42:37] INFO   Epoch 21 | batch 40/140 | loss=1586.16
+[11:42:40] INFO   Epoch 21 | batch 60/140 | loss=2051.45
+[11:42:42] INFO   Epoch 21 | batch 80/140 | loss=2025.83
+[11:42:44] INFO   Epoch 21 | batch 100/140 | loss=558.42
+[11:42:46] INFO   Epoch 21 | batch 120/140 | loss=1860.84
+[11:42:48] INFO   Epoch 21 | batch 140/140 | loss=3892.94
+[11:42:52] INFO Epoch  21/50 | train loss=1818.24  mape=29.1%  mae=55.0cm³ | val   loss=1674.27  mape=28.0%  mae=52.9cm³ | lr=7.19e-05 | time=15.8s
+[11:42:54] INFO   Epoch 22 | batch 20/140 | loss=2226.61
+[11:42:56] INFO   Epoch 22 | batch 40/140 | loss=2250.35
+[11:42:58] INFO   Epoch 22 | batch 60/140 | loss=752.52
+[11:43:00] INFO   Epoch 22 | batch 80/140 | loss=2120.99
+[11:43:03] INFO   Epoch 22 | batch 100/140 | loss=2143.00
+[11:43:05] INFO   Epoch 22 | batch 120/140 | loss=1644.84
+[11:43:07] INFO   Epoch 22 | batch 140/140 | loss=910.07
+[11:43:10] INFO Epoch  22/50 | train loss=1733.01  mape=28.0%  mae=53.1cm³ | val   loss=1874.35  mape=26.0%  mae=56.1cm³ | lr=6.87e-05 | time=15.0s
+[11:43:12] INFO   Epoch 23 | batch 20/140 | loss=1881.60
+[11:43:14] INFO   Epoch 23 | batch 40/140 | loss=1496.17
+[11:43:16] INFO   Epoch 23 | batch 60/140 | loss=3301.27
+[11:43:18] INFO   Epoch 23 | batch 80/140 | loss=2205.52
+[11:43:21] INFO   Epoch 23 | batch 100/140 | loss=1370.76
+[11:43:23] INFO   Epoch 23 | batch 120/140 | loss=3182.99
+[11:43:25] INFO   Epoch 23 | batch 140/140 | loss=1000.42
+[11:43:28] INFO Epoch  23/50 | train loss=1694.07  mape=27.4%  mae=52.5cm³ | val   loss=1828.58  mape=25.6%  mae=55.4cm³ | lr=6.55e-05 | time=14.9s
+[11:43:29] INFO   ✓ New best val MAPE=25.6% - saved to checkpoints/best_model.pt
+[11:43:31] INFO   Epoch 24 | batch 20/140 | loss=926.12
+[11:43:33] INFO   Epoch 24 | batch 40/140 | loss=774.72
+[11:43:36] INFO   Epoch 24 | batch 60/140 | loss=2331.46
+[11:43:38] INFO   Epoch 24 | batch 80/140 | loss=976.64
+[11:43:40] INFO   Epoch 24 | batch 100/140 | loss=943.65
+[11:43:42] INFO   Epoch 24 | batch 120/140 | loss=3133.16
+[11:43:44] INFO   Epoch 24 | batch 140/140 | loss=1504.54
+[11:43:47] INFO Epoch  24/50 | train loss=1584.76  mape=26.1%  mae=49.7cm³ | val   loss=1743.13  mape=24.8%  mae=53.4cm³ | lr=6.21e-05 | time=15.0s
+[11:43:48] INFO   ✓ New best val MAPE=24.8% - saved to checkpoints/best_model.pt
+[11:43:51] INFO   Epoch 25 | batch 20/140 | loss=2123.22
+[11:43:53] INFO   Epoch 25 | batch 40/140 | loss=1698.64
+[11:43:55] INFO   Epoch 25 | batch 60/140 | loss=1923.34
+[11:43:57] INFO   Epoch 25 | batch 80/140 | loss=1751.36
+[11:43:59] INFO   Epoch 25 | batch 100/140 | loss=2104.64
+[11:44:01] INFO   Epoch 25 | batch 120/140 | loss=1067.22
+[11:44:03] INFO   Epoch 25 | batch 140/140 | loss=1636.09
+[11:44:07] INFO Epoch  25/50 | train loss=1609.26  mape=25.9%  mae=50.6cm³ | val   loss=1680.47  mape=24.8%  mae=51.6cm³ | lr=5.87e-05 | time=15.1s
+[11:44:09] INFO   Epoch 26 | batch 20/140 | loss=1553.41
+[11:44:11] INFO   Epoch 26 | batch 40/140 | loss=1563.84
+[11:44:13] INFO   Epoch 26 | batch 60/140 | loss=820.95
+[11:44:15] INFO   Epoch 26 | batch 80/140 | loss=1430.48
+[11:44:17] INFO   Epoch 26 | batch 100/140 | loss=949.17
+[11:44:19] INFO   Epoch 26 | batch 120/140 | loss=668.62
+[11:44:21] INFO   Epoch 26 | batch 140/140 | loss=2131.58
+[11:44:24] INFO Epoch  26/50 | train loss=1532.72  mape=25.3%  mae=48.5cm³ | val   loss=1782.73  mape=24.6%  mae=53.1cm³ | lr=5.52e-05 | time=14.5s
+[11:44:25] INFO   ✓ New best val MAPE=24.6% - saved to checkpoints/best_model.pt
+[11:44:28] INFO   Epoch 27 | batch 20/140 | loss=1302.47
+[11:44:30] INFO   Epoch 27 | batch 40/140 | loss=1318.36
+[11:44:32] INFO   Epoch 27 | batch 60/140 | loss=606.81
+[11:44:34] INFO   Epoch 27 | batch 80/140 | loss=2464.81
+[11:44:36] INFO   Epoch 27 | batch 100/140 | loss=843.56
+[11:44:38] INFO   Epoch 27 | batch 120/140 | loss=2399.83
+[11:44:40] INFO   Epoch 27 | batch 140/140 | loss=820.62
+[11:44:43] INFO Epoch  27/50 | train loss=1492.80  mape=24.7%  mae=47.8cm³ | val   loss=1469.27  mape=24.4%  mae=47.6cm³ | lr=5.17e-05 | time=14.6s
+[11:44:44] INFO   ✓ New best val MAPE=24.4% - saved to checkpoints/best_model.pt
+[11:44:46] INFO   Epoch 28 | batch 20/140 | loss=1389.32
+[11:44:49] INFO   Epoch 28 | batch 40/140 | loss=1021.60
+[11:44:51] INFO   Epoch 28 | batch 60/140 | loss=1306.56
+[11:44:53] INFO   Epoch 28 | batch 80/140 | loss=1334.05
+[11:44:55] INFO   Epoch 28 | batch 100/140 | loss=851.06
+[11:44:57] INFO   Epoch 28 | batch 120/140 | loss=1057.71
+[11:44:59] INFO   Epoch 28 | batch 140/140 | loss=1212.62
+[11:45:03] INFO Epoch  28/50 | train loss=1540.30  mape=24.8%  mae=48.5cm³ | val   loss=1603.65  mape=24.8%  mae=50.7cm³ | lr=4.83e-05 | time=14.8s
+[11:45:05] INFO   Epoch 29 | batch 20/140 | loss=1619.42
+[11:45:07] INFO   Epoch 29 | batch 40/140 | loss=431.09
+[11:45:10] INFO   Epoch 29 | batch 60/140 | loss=1440.30
+[11:45:12] INFO   Epoch 29 | batch 80/140 | loss=1733.17
+[11:45:14] INFO   Epoch 29 | batch 100/140 | loss=2120.87
+[11:45:16] INFO   Epoch 29 | batch 120/140 | loss=2012.40
+[11:45:18] INFO   Epoch 29 | batch 140/140 | loss=1247.02
+[11:45:22] INFO Epoch  29/50 | train loss=1530.03  mape=24.4%  mae=48.4cm³ | val   loss=1642.77  mape=25.9%  mae=51.9cm³ | lr=4.48e-05 | time=15.4s
+[11:45:24] INFO   Epoch 30 | batch 20/140 | loss=1013.90
+[11:45:27] INFO   Epoch 30 | batch 40/140 | loss=1265.06
+[11:45:29] INFO   Epoch 30 | batch 60/140 | loss=1999.84
+[11:45:31] INFO   Epoch 30 | batch 80/140 | loss=1249.45
+[11:45:33] INFO   Epoch 30 | batch 100/140 | loss=293.85
+[11:45:35] INFO   Epoch 30 | batch 120/140 | loss=1580.80
+[11:45:38] INFO   Epoch 30 | batch 140/140 | loss=1833.87
+[11:45:41] INFO Epoch  30/50 | train loss=1471.82  mape=24.8%  mae=47.0cm³ | val   loss=1481.39  mape=23.7%  mae=48.4cm³ | lr=4.13e-05 | time=15.6s
+[11:45:42] INFO   ✓ New best val MAPE=23.7% - saved to checkpoints/best_model.pt
+[11:45:45] INFO   Epoch 31 | batch 20/140 | loss=911.92
+[11:45:48] INFO   Epoch 31 | batch 40/140 | loss=956.40
+[11:45:50] INFO   Epoch 31 | batch 60/140 | loss=2639.29
+[11:45:53] INFO   Epoch 31 | batch 80/140 | loss=1019.86
+[11:45:56] INFO   Epoch 31 | batch 100/140 | loss=1097.90
+[11:45:58] INFO   Epoch 31 | batch 120/140 | loss=1124.23
+[11:46:00] INFO   Epoch 31 | batch 140/140 | loss=738.88
+[11:46:04] INFO Epoch  31/50 | train loss=1472.02  mape=24.5%  mae=47.4cm³ | val   loss=1568.00  mape=23.5%  mae=50.0cm³ | lr=3.79e-05 | time=17.7s
+[11:46:05] INFO   ✓ New best val MAPE=23.5% - saved to checkpoints/best_model.pt
+[11:46:08] INFO   Epoch 32 | batch 20/140 | loss=935.46
+[11:46:10] INFO   Epoch 32 | batch 40/140 | loss=2611.66
+[11:46:13] INFO   Epoch 32 | batch 60/140 | loss=1585.03
+[11:46:15] INFO   Epoch 32 | batch 80/140 | loss=765.78
+[11:46:17] INFO   Epoch 32 | batch 100/140 | loss=1121.48
+[11:46:19] INFO   Epoch 32 | batch 120/140 | loss=2025.99
+[11:46:21] INFO   Epoch 32 | batch 140/140 | loss=2696.07
+[11:46:25] INFO Epoch  32/50 | train loss=1433.51  mape=24.0%  mae=46.3cm³ | val   loss=1549.81  mape=24.4%  mae=49.7cm³ | lr=3.45e-05 | time=16.1s
+[11:46:27] INFO   Epoch 33 | batch 20/140 | loss=574.98
+[11:46:29] INFO   Epoch 33 | batch 40/140 | loss=2077.16
+[11:46:31] INFO   Epoch 33 | batch 60/140 | loss=1297.12
+[11:46:33] INFO   Epoch 33 | batch 80/140 | loss=868.29
+[11:46:36] INFO   Epoch 33 | batch 100/140 | loss=992.76
+[11:46:38] INFO   Epoch 33 | batch 120/140 | loss=1269.35
+[11:46:40] INFO   Epoch 33 | batch 140/140 | loss=3109.20
+[11:46:43] INFO Epoch  33/50 | train loss=1433.39  mape=24.1%  mae=46.1cm³ | val   loss=1672.11  mape=23.8%  mae=52.0cm³ | lr=3.13e-05 | time=14.7s
+[11:46:46] INFO   Epoch 34 | batch 20/140 | loss=1805.65
+[11:46:48] INFO   Epoch 34 | batch 40/140 | loss=809.70
+[11:46:50] INFO   Epoch 34 | batch 60/140 | loss=1108.07
+[11:46:52] INFO   Epoch 34 | batch 80/140 | loss=795.35
+[11:46:54] INFO   Epoch 34 | batch 100/140 | loss=1653.26
+[11:46:57] INFO   Epoch 34 | batch 120/140 | loss=4084.29
+[11:46:59] INFO   Epoch 34 | batch 140/140 | loss=522.14
+[11:47:02] INFO Epoch  34/50 | train loss=1407.61  mape=23.8%  mae=45.9cm³ | val   loss=1646.07  mape=24.5%  mae=51.4cm³ | lr=2.81e-05 | time=15.7s
+[11:47:05] INFO   Epoch 35 | batch 20/140 | loss=1208.47
+[11:47:07] INFO   Epoch 35 | batch 40/140 | loss=1601.13
+[11:47:09] INFO   Epoch 35 | batch 60/140 | loss=2338.72
+[11:47:11] INFO   Epoch 35 | batch 80/140 | loss=1380.11
+[11:47:14] INFO   Epoch 35 | batch 100/140 | loss=1582.67
+[11:47:16] INFO   Epoch 35 | batch 120/140 | loss=1104.26
+[11:47:18] INFO   Epoch 35 | batch 140/140 | loss=355.99
+[11:47:21] INFO Epoch  35/50 | train loss=1402.22  mape=24.0%  mae=45.6cm³ | val   loss=1635.29  mape=24.6%  mae=51.1cm³ | lr=2.50e-05 | time=15.6s
+[11:47:24] INFO   Epoch 36 | batch 20/140 | loss=1819.85
+[11:47:26] INFO   Epoch 36 | batch 40/140 | loss=1276.59
+[11:47:28] INFO   Epoch 36 | batch 60/140 | loss=1883.29
+[11:47:30] INFO   Epoch 36 | batch 80/140 | loss=1286.91
+[11:47:33] INFO   Epoch 36 | batch 100/140 | loss=1386.15
+[11:47:35] INFO   Epoch 36 | batch 120/140 | loss=1504.10
+[11:47:37] INFO   Epoch 36 | batch 140/140 | loss=2508.12
+[11:47:40] INFO Epoch  36/50 | train loss=1337.07  mape=24.2%  mae=44.1cm³ | val   loss=1505.98  mape=23.6%  mae=48.5cm³ | lr=2.20e-05 | time=15.7s
+[11:47:43] INFO   Epoch 37 | batch 20/140 | loss=2915.30
+[11:47:45] INFO   Epoch 37 | batch 40/140 | loss=1730.00
+[11:47:47] INFO   Epoch 37 | batch 60/140 | loss=1090.27
+[11:47:49] INFO   Epoch 37 | batch 80/140 | loss=1638.82
+[11:47:51] INFO   Epoch 37 | batch 100/140 | loss=957.28
+[11:47:54] INFO   Epoch 37 | batch 120/140 | loss=1405.52
+[11:47:56] INFO   Epoch 37 | batch 140/140 | loss=2976.65
+[11:47:59] INFO Epoch  37/50 | train loss=1395.10  mape=23.6%  mae=45.5cm³ | val   loss=1514.88  mape=22.5%  mae=48.8cm³ | lr=1.92e-05 | time=15.5s
+[11:48:00] INFO   ✓ New best val MAPE=22.5% - saved to checkpoints/best_model.pt
+[11:48:03] INFO   Epoch 38 | batch 20/140 | loss=1060.97
+[11:48:06] INFO   Epoch 38 | batch 40/140 | loss=2064.11
+[11:48:09] INFO   Epoch 38 | batch 60/140 | loss=1944.52
+[11:48:11] INFO   Epoch 38 | batch 80/140 | loss=1397.80
+[11:48:13] INFO   Epoch 38 | batch 100/140 | loss=1567.19
+[11:48:15] INFO   Epoch 38 | batch 120/140 | loss=2365.36
+[11:48:17] INFO   Epoch 38 | batch 140/140 | loss=1596.27
+[11:48:21] INFO Epoch  38/50 | train loss=1357.69  mape=23.1%  mae=44.7cm³ | val   loss=1698.30  mape=23.6%  mae=52.2cm³ | lr=1.65e-05 | time=16.9s
+[11:48:23] INFO   Epoch 39 | batch 20/140 | loss=1171.43
+[11:48:25] INFO   Epoch 39 | batch 40/140 | loss=1950.23
+[11:48:27] INFO   Epoch 39 | batch 60/140 | loss=765.95
+[11:48:30] INFO   Epoch 39 | batch 80/140 | loss=1731.24
+[11:48:32] INFO   Epoch 39 | batch 100/140 | loss=1749.32
+[11:48:34] INFO   Epoch 39 | batch 120/140 | loss=2119.72
+[11:48:36] INFO   Epoch 39 | batch 140/140 | loss=637.73
+[11:48:39] INFO Epoch  39/50 | train loss=1384.81  mape=24.1%  mae=45.3cm³ | val   loss=1656.63  mape=23.5%  mae=51.4cm³ | lr=1.40e-05 | time=15.3s
+[11:48:42] INFO   Epoch 40 | batch 20/140 | loss=1320.72
+[11:48:44] INFO   Epoch 40 | batch 40/140 | loss=1586.72
+[11:48:46] INFO   Epoch 40 | batch 60/140 | loss=3316.33
+[11:48:48] INFO   Epoch 40 | batch 80/140 | loss=1237.54
+[11:48:50] INFO   Epoch 40 | batch 100/140 | loss=752.11
+[11:48:52] INFO   Epoch 40 | batch 120/140 | loss=1957.54
+[11:48:54] INFO   Epoch 40 | batch 140/140 | loss=1357.35
+[11:48:58] INFO Epoch  40/50 | train loss=1322.43  mape=23.0%  mae=43.8cm³ | val   loss=1738.45  mape=23.6%  mae=52.7cm³ | lr=1.17e-05 | time=15.4s
+[11:49:00] INFO   Epoch 41 | batch 20/140 | loss=1147.29
+[11:49:02] INFO   Epoch 41 | batch 40/140 | loss=901.73
+[11:49:05] INFO   Epoch 41 | batch 60/140 | loss=1789.74
+[11:49:07] INFO   Epoch 41 | batch 80/140 | loss=797.43
+[11:49:09] INFO   Epoch 41 | batch 100/140 | loss=1156.62
+[11:49:11] INFO   Epoch 41 | batch 120/140 | loss=1246.60
+[11:49:14] INFO   Epoch 41 | batch 140/140 | loss=376.89
+[11:49:17] INFO Epoch  41/50 | train loss=1330.99  mape=23.5%  mae=44.3cm³ | val   loss=1511.84  mape=23.2%  mae=48.7cm³ | lr=9.55e-06 | time=16.1s
+[11:49:20] INFO   Epoch 42 | batch 20/140 | loss=1449.88
+[11:49:23] INFO   Epoch 42 | batch 40/140 | loss=1777.20
+[11:49:25] INFO   Epoch 42 | batch 60/140 | loss=909.33
+[11:49:28] INFO   Epoch 42 | batch 80/140 | loss=677.83
+[11:49:30] INFO   Epoch 42 | batch 100/140 | loss=1114.35
+[11:49:33] INFO   Epoch 42 | batch 120/140 | loss=1570.08
+[11:49:35] INFO   Epoch 42 | batch 140/140 | loss=636.47
+[11:49:39] INFO Epoch  42/50 | train loss=1329.02  mape=23.3%  mae=44.2cm³ | val   loss=1594.95  mape=23.5%  mae=50.3cm³ | lr=7.60e-06 | time=17.6s
+[11:49:42] INFO   Epoch 43 | batch 20/140 | loss=1869.62
+[11:49:44] INFO   Epoch 43 | batch 40/140 | loss=1095.97
+[11:49:47] INFO   Epoch 43 | batch 60/140 | loss=896.60
+[11:49:49] INFO   Epoch 43 | batch 80/140 | loss=2617.44
+[11:49:51] INFO   Epoch 43 | batch 100/140 | loss=2251.87
+[11:49:54] INFO   Epoch 43 | batch 120/140 | loss=1316.09
+[11:49:56] INFO   Epoch 43 | batch 140/140 | loss=1022.01
+[11:50:00] INFO Epoch  43/50 | train loss=1309.40  mape=23.3%  mae=43.4cm³ | val   loss=1617.74  mape=23.5%  mae=50.7cm³ | lr=5.85e-06 | time=17.4s
+[11:50:06] INFO   Epoch 44 | batch 20/140 | loss=916.25
+[11:50:08] INFO   Epoch 44 | batch 40/140 | loss=532.96
+[11:50:11] INFO   Epoch 44 | batch 60/140 | loss=736.73
+[11:50:13] INFO   Epoch 44 | batch 80/140 | loss=487.32
+[11:50:16] INFO   Epoch 44 | batch 100/140 | loss=1250.51
+[11:50:18] INFO   Epoch 44 | batch 120/140 | loss=1407.59
+[11:50:21] INFO   Epoch 44 | batch 140/140 | loss=484.16
+[11:50:25] INFO Epoch  44/50 | train loss=1325.47  mape=23.0%  mae=44.1cm³ | val   loss=1588.28  mape=23.5%  mae=50.1cm³ | lr=4.32e-06 | time=20.4s
+[11:50:28] INFO   Epoch 45 | batch 20/140 | loss=1344.03
+[11:50:30] INFO   Epoch 45 | batch 40/140 | loss=1140.58
+[11:50:32] INFO   Epoch 45 | batch 60/140 | loss=1277.52
+[11:50:35] INFO   Epoch 45 | batch 80/140 | loss=2194.87
+[11:50:37] INFO   Epoch 45 | batch 100/140 | loss=1794.81
+[11:50:40] INFO   Epoch 45 | batch 120/140 | loss=2372.14
+[11:50:42] INFO   Epoch 45 | batch 140/140 | loss=1927.07
+[11:50:47] INFO Epoch  45/50 | train loss=1309.88  mape=23.2%  mae=43.7cm³ | val   loss=1584.05  mape=23.4%  mae=50.0cm³ | lr=3.02e-06 | time=17.1s
+[11:50:50] INFO   Epoch 46 | batch 20/140 | loss=584.08
+[11:50:52] INFO   Epoch 46 | batch 40/140 | loss=1277.26
+[11:50:54] INFO   Epoch 46 | batch 60/140 | loss=643.99
+[11:50:58] INFO   Epoch 46 | batch 80/140 | loss=843.34
+[11:51:00] INFO   Epoch 46 | batch 100/140 | loss=812.93
+[11:51:02] INFO   Epoch 46 | batch 120/140 | loss=1979.67
+[11:51:05] INFO   Epoch 46 | batch 140/140 | loss=363.77
+[11:51:08] INFO Epoch  46/50 | train loss=1360.09  mape=23.1%  mae=44.7cm³ | val   loss=1575.90  mape=23.4%  mae=49.9cm³ | lr=1.94e-06 | time=18.0s
+[11:51:11] INFO   Epoch 47 | batch 20/140 | loss=1633.50
+[11:51:13] INFO   Epoch 47 | batch 40/140 | loss=1005.16
+[11:51:16] INFO   Epoch 47 | batch 60/140 | loss=1572.17
+[11:51:18] INFO   Epoch 47 | batch 80/140 | loss=1473.56
+[11:51:21] INFO   Epoch 47 | batch 100/140 | loss=815.27
+[11:51:23] INFO   Epoch 47 | batch 120/140 | loss=1602.14
+[11:51:25] INFO   Epoch 47 | batch 140/140 | loss=2323.57
+[11:51:29] INFO Epoch  47/50 | train loss=1289.78  mape=22.8%  mae=43.2cm³ | val   loss=1577.34  mape=23.3%  mae=49.9cm³ | lr=1.09e-06 | time=17.3s
+[11:51:31] INFO   Epoch 48 | batch 20/140 | loss=1619.86
+[11:51:34] INFO   Epoch 48 | batch 40/140 | loss=737.20
+[11:51:36] INFO   Epoch 48 | batch 60/140 | loss=1517.47
+[11:51:38] INFO   Epoch 48 | batch 80/140 | loss=737.25
+[11:51:40] INFO   Epoch 48 | batch 100/140 | loss=720.79
+[11:51:42] INFO   Epoch 48 | batch 120/140 | loss=895.98
+[11:51:44] INFO   Epoch 48 | batch 140/140 | loss=864.77
+[11:51:47] INFO Epoch  48/50 | train loss=1323.30  mape=22.7%  mae=43.9cm³ | val   loss=1563.37  mape=23.3%  mae=49.6cm³ | lr=4.87e-07 | time=14.9s
+[11:51:49] INFO   Epoch 49 | batch 20/140 | loss=1242.05
+[11:51:52] INFO   Epoch 49 | batch 40/140 | loss=576.83
+[11:51:54] INFO   Epoch 49 | batch 60/140 | loss=921.77
+[11:51:56] INFO   Epoch 49 | batch 80/140 | loss=1885.99
+[11:51:58] INFO   Epoch 49 | batch 100/140 | loss=1060.85
+[11:52:00] INFO   Epoch 49 | batch 120/140 | loss=1973.71
+[11:52:02] INFO   Epoch 49 | batch 140/140 | loss=824.79
+[11:52:05] INFO Epoch  49/50 | train loss=1321.73  mape=23.3%  mae=43.9cm³ | val   loss=1559.15  mape=23.3%  mae=49.6cm³ | lr=1.22e-07 | time=14.6s
+[11:52:07] INFO   Epoch 50 | batch 20/140 | loss=1433.92
+[11:52:10] INFO   Epoch 50 | batch 40/140 | loss=2074.59
+[11:52:12] INFO   Epoch 50 | batch 60/140 | loss=1619.16
+[11:52:14] INFO   Epoch 50 | batch 80/140 | loss=325.78
+[11:52:16] INFO   Epoch 50 | batch 100/140 | loss=879.24
+[11:52:18] INFO   Epoch 50 | batch 120/140 | loss=781.80
+[11:52:20] INFO   Epoch 50 | batch 140/140 | loss=1018.84
+[11:52:23] INFO Epoch  50/50 | train loss=1321.16  mape=23.0%  mae=43.8cm³ | val   loss=1558.09  mape=23.3%  mae=49.6cm³ | lr=0.00e+00 | time=14.5s
+[11:52:23] INFO --- Test set evaluation ---
+[11:52:28] INFO Test | mape=18.1%  mae=44.9cm³  loss=1342.99
+[11:52:28] INFO Best checkpoint: checkpoints/best_model.pt
