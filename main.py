@@ -14,6 +14,9 @@ from torchvision import transforms
 import torchvision.models as models
 from PIL import Image
 from pillow_heif import register_heif_opener
+
+from model_manage import register_loader, get_model, release_model
+
 register_heif_opener()
 
 import piexif
@@ -25,6 +28,8 @@ import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
+
+from visualise_volume_3d import visualise_volume_3d
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
@@ -84,14 +89,18 @@ else:
 torch_dtype = torch.bfloat16
 torch_device = torch.device(device)
 processor = DepthProImageProcessor.from_pretrained("apple/DepthPro-hf")
-model = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype).to(torch_device)
-model.eval()
-logger.info("Depth model loaded successfully.")
-
 sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
-sam3_model = Sam3Model.from_pretrained("facebook/sam3", torch_dtype=torch_dtype).to(torch_device)
-sam3_model.eval()
-logger.info("SAM 3 loaded.")
+
+def _load_depth_model():
+    m = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype)
+    return m.eval()
+
+def _load_sam3_model():
+    m = Sam3Model.from_pretrained("facebook/sam3", torch_dtype=torch_dtype)
+    return m.eval()
+
+register_loader("depthpro", _load_depth_model)
+register_loader("sam3", _load_sam3_model)
 
 _transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -126,10 +135,9 @@ def load_model(model_path: str) -> nn.Module:
     )
     checkpoint = torch.load(model_path, map_location=device)
     model.load_state_dict(checkpoint["state_dict"])
-    return model.to(device).eval()
+    return model.eval()
 
-_custom_model = load_model("models/trained-full-depth.pt")
-logger.info("Custom model loaded.")
+register_loader("custom_volume", lambda: load_model("models/trained-full-depth.pt"))
 
 _rgb_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -193,8 +201,10 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
     inputs = processor(images=pillow_image, return_tensors="pt")  # preprocesses the image to ensure conformity to the model
     inputs = {k: v.to(torch_device) for k, v in inputs.items()}
 
+    depth_model = get_model("depthpro")
     with torch.no_grad():
-        outputs = model(**inputs)
+        outputs = depth_model(**inputs)
+    release_model("depthpro")
 
     post_processed = processor.post_process_depth_estimation(
         outputs,
@@ -313,8 +323,10 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
 
     inputs = sam3_processor(images=pillow_image, text="food", return_tensors="pt").to(torch_device)
 
+    sam3 = get_model("sam3")
     with torch.no_grad():
-        outputs = sam3_model(**inputs)
+        outputs = sam3(**inputs)
+    release_model("sam3")
 
     results = sam3_processor.post_process_instance_segmentation(
         outputs,
@@ -527,6 +539,8 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     volume_res = compute_volume(depth_map, food_mask, image_info, plate_depth_m)
     logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
+    visualise_volume_3d(depth_map, food_mask, image_info, plate_depth_m, volume_res, pil_image=pillow_image)
+
     # Render debug visualisations
     depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
     depth_bytes = base64.b64decode(depth_b64)
@@ -562,7 +576,11 @@ def run_custom_model(image: Image.Image, depth_map: np.ndarray) -> float:
     depth_tensor = torch.from_numpy(depth_resized).unsqueeze(0).float()  # (1, 224, 224)
 
     tensor = torch.cat([rgb_tensor, depth_tensor], dim=0).unsqueeze(0).to(device)  # (1, 4, 224, 224)
-    return _custom_model(tensor).squeeze().item()
+
+    model = get_model("custom_volume")
+    result = model(tensor).squeeze().item()
+    release_model("custom_volume")
+    return result
 
 @app.post("/api/v1/estimate-volume-dl")
 async def volume_estimation_dl(file: UploadFile = File(...)):

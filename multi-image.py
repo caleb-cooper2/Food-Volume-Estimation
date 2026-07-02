@@ -14,6 +14,7 @@ from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
 from main import estimate_depth, segment_food
+from model_manage import register_loader, release_model, get_model
 
 app = FastAPI(title="Volume Estimation API - Multi-Image")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -26,7 +27,8 @@ else:
     device = "cpu"
 
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-vggt_model = VGGT.from_pretrained("facebook/VGGT-1B").to(device)
+
+register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
 
 def load_and_preprocess_images_from_pil(pil_images: list[Image.Image]) -> torch.Tensor:
     with tempfile.TemporaryDirectory() as temp_directory:
@@ -76,22 +78,37 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
 
     # VGGT reconstruction
     images_tensor = load_and_preprocess_images_from_pil(pil_images)
+    vggt_model = get_model("vggt")
     with torch.no_grad():
         with torch.autocast(device_type=device, dtype=dtype):
             predictions = vggt_model(images_tensor.to(torch.device(device)))
+    release_model("vggt")
 
-    world_points = predictions["world_points"][0, 0].cpu().numpy() # (H, W, 3)
+    world_points = predictions["world_points"][0, 0].cpu().numpy()  # (H, W, 3)
+    vggt_depth = predictions["depth"][0, 0].cpu().numpy().squeeze(-1)  # (H, W)
+
     print(f"world_points shape: {world_points.shape}")
     print(f"X range: {world_points[..., 0].min():.3f} to {world_points[..., 0].max():.3f}")
     print(f"Y range: {world_points[..., 1].min():.3f} to {world_points[..., 1].max():.3f}")
     print(f"Z range: {world_points[..., 2].min():.3f} to {world_points[..., 2].max():.3f}")
 
-    # Scale anchor using DepthPro on primary image
-    depth_metric, focal_px = estimate_depth(primary)
-    vggt_depth = predictions["depth"][0].cpu().numpy()
-    bg_mask = food_mask == 0
+    # Resize food mask to VGGT's working resolution
+    food_mask_resized = cv2.resize(
+        food_mask.astype(np.uint8),
+        (vggt_depth.shape[1], vggt_depth.shape[0]),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    bg_mask = food_mask_resized == 0
 
-    scale = float(np.median(depth_metric[bg_mask]) / np.median(vggt_depth[bg_mask]))
+    # Have to get a scale anchor using DepthPro on primary image, resized to match VGGT
+    depth_metric, focal_px = estimate_depth(primary)
+    depth_metric_resized = cv2.resize(
+        depth_metric,
+        (vggt_depth.shape[1], vggt_depth.shape[0]),
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    scale = float(np.median(depth_metric_resized[bg_mask]) / np.median(vggt_depth[bg_mask]))
     print(f"VGGT scale factor from DepthPro: {scale:.4f}")
 
     world_points_metric = world_points * scale
@@ -100,7 +117,6 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     print(f"Y range: {world_points_metric[..., 1].min():.3f} to {world_points_metric[..., 1].max():.3f}")
     print(f"Z range: {world_points_metric[..., 2].min():.3f} to {world_points_metric[..., 2].max():.3f}")
 
-    food_mask_resized = cv2.resize(food_mask.astype(np.uint8), (world_points_metric.shape[1], world_points_metric.shape[0]))
     food_points_metric = world_points_metric[food_mask_resized > 0]
     volume_cm3 = compute_volume_from_mesh(food_points_metric)
 
