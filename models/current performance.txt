@@ -1,3 +1,5 @@
 On bagel (20230927_102352.jpg) from SimpleFood45, ground truth volume is 298.98, without tilt estimates 225.88 cm^3, with tilt estimates 189.42 cm^3
 
 With depth trained model, the estimated volume is 53.70 cm^3 when depth is not provided, when depth is estimated with DepthPro, the estimated volume is 45.16 cm^3
+
+With model trained with side-angles, estimated volume is 130.67 cm^3, but is overall much more consistent than the other models when tested on different angles of the bagel and other objects

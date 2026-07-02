@@ -13,6 +13,8 @@ Phase 2 (epochs warmup_epochs+1–total): Unfreeze backbone with 10x lower LR th
 
 import argparse
 import logging
+import random
+import re
 import time
 from pathlib import Path
 
@@ -24,7 +26,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 logging.basicConfig(
@@ -33,6 +35,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+SIDE_ANGLE_PATTERN = re.compile(r"^camera_([ABCD])frame(\d{3})\.jpeg$")
 
 
 def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
@@ -100,6 +104,9 @@ def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
     )
 
 
+def is_valid_file(path: Path) -> bool:
+    return path.exists() and path.stat().st_size > 0
+
 class Nutrition5KDataset(Dataset):
     """
     Loads RGB images and ground-truth volumes from Nutrition5K dataset.
@@ -111,103 +118,126 @@ class Nutrition5KDataset(Dataset):
             dish_ids: list[str],
             volume_lookup: dict[str, float],
             transform,
-            spatial_aug: A.Compose | None,
-            photometric_aug: A.Compose | None,
+            mode: str,
+            spatial_aug_overhead: A.Compose | None = None,
+            spatial_aug_side: A.Compose | None = None,
+            photometric_aug: A.Compose | None = None,
             augment_tilt: bool = True
     ):
         self.root = Path(data_root)
         self.transform = transform
-        self.augment_tilt = augment_tilt
+        self.mode = mode
+        self.augment_tilt = augment_tilt and mode == "train"
         self.volume_lookup = volume_lookup
-        self.spatial_aug = spatial_aug
+        self.spatial_aug_overhead = spatial_aug_overhead
+        self.spatial_aug_side = spatial_aug_side
         self.photometric_aug = photometric_aug
 
-        self.samples = [
-            d for d in dish_ids
-            if self._is_valid_dish(d) and d in self.volume_lookup
-        ]
-        logger.info(f"Dataset: {len(self.samples)}/{len(dish_ids)} dishes (on disk + labelled)")
+        self.views: dict[str, dict] = {}
+        n_with_side = 0
+        n_overhead_only = 0
+        n_side_only = 0
+
+        for dish_id in dish_ids:
+            if dish_id not in self.volume_lookup:
+                logger.warning(f"Skipping dish {dish_id} as it's not in the volume lookup")
+                continue
+            manifest = self.discover_views(dish_id)
+            if manifest["overhead"] is None and not manifest["side_by_camera"]:
+                logger.warning(f"Skipping dish {dish_id} as it has no usable views")
+                continue # no usable image data, skip
+            self.views[dish_id] = manifest
+            if manifest["overhead"] is None:
+                n_side_only += 1
+            elif manifest["side_by_camera"]:
+                n_with_side += 1
+            else:
+                n_overhead_only += 1
+
+        self.samples = list(self.views.keys())
+        logger.info(
+            f"Dataset[{mode}]: {len(self.samples)}/{len(dish_ids)} dishes usable | "
+            f"overhead+side={n_with_side} | overhead_only={n_overhead_only} | side_only={n_side_only}"
+        )
 
     def __len__(self):
         return len(self.samples)
 
+    def discover_views(self, dish_id: str) -> dict:
+        overhead_path = self.root / "imagery/realsense_overhead" / dish_id / "rgb.png"
+        overhead = overhead_path if is_valid_file(overhead_path) else None
+
+        side_dir = self.root / "imagery/side_angles" / dish_id
+        side_by_camera: dict[str, list[Path]] = {}
+        if side_dir.is_dir():
+            for candidate in side_dir.glob("camera_*frame*.jpeg"):
+                match = SIDE_ANGLE_PATTERN.match(candidate.name)
+                if match is None or not is_valid_file(candidate):
+                    logger.warning(f"Skipping invalid side angle candidate: {candidate}. no match or not valid file")
+                    continue
+                camera = match.group(1)
+                side_by_camera.setdefault(camera, []).append(candidate)
+        return {"overhead": overhead, "side_by_camera": side_by_camera}
+
+    def select_view(self, dish_id: str) -> tuple[Path, str]:
+        manifest = self.views[dish_id]
+
+        if self.mode != "train":
+            # Deterministic pick so val/test metrics are stable and comparable across epochs
+            if manifest["overhead"] is not None:
+                return manifest["overhead"], "overhead"
+            first_camera = sorted(manifest["side_by_camera"])[0]
+            return sorted(manifest["side_by_camera"][first_camera])[0], "side"
+
+        # For training, pick uniformly from available viewpoint "pools"
+        pools = []
+        if manifest["overhead"] is not None:
+            pools.append(("overhead", None))
+        for camera, frames in manifest["side_by_camera"].items():
+            if frames:
+                pools.append(("side", camera))
+
+        view_kind, camera = pools[np.random.randint(len(pools))]
+        if view_kind == "overhead":
+            return manifest["overhead"], "overhead"
+
+        frames = manifest["side_by_camera"][camera]
+        return frames[np.random.randint(len(frames))], "side"
+
+
     def __getitem__(self, idx: int) -> dict:
         dish_id = self.samples[idx]
-        dish_dir = self.root / "imagery/realsense_overhead" / dish_id
+        image_path, view_type = self.select_view(dish_id)
 
-        rgb = np.array(Image.open(dish_dir / "rgb.png").convert("RGB"))
+        rgb = np.array(Image.open(image_path).convert("RGB"))
 
-        depth_raw = cv2.imread(str(dish_dir / "depth_raw.png"), cv2.IMREAD_UNCHANGED)
-        depth_m = depth_raw.astype(np.float32) / 10000.0 # convert to float32 meters
-
-        if self.spatial_aug is not None:
-            augmented = self.spatial_aug(image=rgb, depth=depth_m)
-            rgb = augmented["image"] # (H, W, 3) uint8, now cropped/flipped
-            depth_m = augmented["depth"] # (H, W) float32, same crop/flip applied
+        spatial_aug = self.spatial_aug_overhead if view_type == "overhead" else self.spatial_aug_side
+        if spatial_aug is not None:
+            rgb = spatial_aug(image=rgb)["image"]
 
         if self.photometric_aug is not None:
             rgb = self.photometric_aug(image=rgb)["image"]
 
-        # if self.augment_tilt:
-        #     rgb = apply_random_tilt(rgb)
+        if self.augment_tilt and view_type == "overhead":
+            rgb = apply_random_tilt(rgb)
 
         volume_cm3 = self.volume_lookup[dish_id]
-
         rgb_tensor = self.transform(Image.fromarray(rgb))
 
-        depth_resized = cv2.resize(
-            depth_m,
-            (rgb_tensor.shape[2], rgb_tensor.shape[1]),  # (W, H)
-            interpolation=cv2.INTER_NEAREST
-        )
-        # convert resized depth to tensor (1, H, W) and ensure float32
-        depth_tensor = torch.from_numpy(depth_resized).unsqueeze(0).to(torch.float32)
-
         return {
-            # provide 4-channel (RGB + depth) tensor to model
-            "rgb": torch.cat([rgb_tensor, depth_tensor], dim=0),
+            "rgb": rgb_tensor,
             "volume_cm3": torch.tensor(volume_cm3, dtype=torch.float32),
-            "dish_id": dish_id
+            "dish_id": dish_id,
+            "view_type": view_type
         }
-
-    def _is_valid_dish(self, dish_id: str) -> bool:
-        """Check if dish exists and is not corrupted as some from the dataset are?"""
-        dish_dir = self.root / "imagery/realsense_overhead" / dish_id
-        rgb_path = dish_dir / "rgb.png"
-        depth_path = dish_dir / "depth_raw.png"
-
-        if not rgb_path.exists() or not depth_path.exists():
-            return False
-        if rgb_path.stat().st_size == 0 or depth_path.stat().st_size == 0:
-            return False
-
-        return True
 
 
 def build_model(freeze_backbone: bool = False) -> nn.Module:
     """
     Load pretrained ConvNeXt-Tiny and replace classification head with regression head.
-    Also replace first convolution to accept 4-channel input (RGB + depth).
     If freeze_backbone=True, keep backbone frozen and only enable classifier gradients.
     """
     model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
-
-    first_conv = model.features[0][0]
-    new_conv = nn.Conv2d(
-        4,
-        first_conv.out_channels,
-        kernel_size=first_conv.kernel_size,
-        stride=first_conv.stride,
-        padding=first_conv.padding,
-        bias=False,
-    )
-    with torch.no_grad():
-        # Copy RGB weights
-        new_conv.weight[:, :3] = first_conv.weight
-        # Initialise depth channel to mean of RGB weights
-        new_conv.weight[:, 3:] = first_conv.weight.mean(dim=1, keepdim=True)
-
-    model.features[0][0] = new_conv
 
     if freeze_backbone:
         for param in model.parameters():
@@ -256,33 +286,30 @@ def get_transforms(img_size: int = 224):
 
     return train_rgb_finalise, val_transform
 
-def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose]:
+def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose, A.Compose]:
     """
-    Spatial augmentation: applied to RGB and depth together via additional_targets.
-    Photometric augmentation: applied to RGB only as depth must not be colour-jittered
-    or blurred (corrupts the geometric signal).
+    Spatial augmentation: applied to overhead and side views, side view doesn't get vertical flip
+    Photometric augmentation: applied to both overhead and side views
     """
-    spatial = A.Compose([
-        # RandomResizedCrop handles both resize and scale jitter in one operation,
-        # ensuring the crop boundary is identical for RGB and depth.
-        A.RandomResizedCrop(
-            size=(img_size, img_size),
-            scale=(0.6, 1.0),
-            ratio=(0.9, 1.1),
-            p=1.0
-        ),
+    spatial_overhead = A.Compose([
+        A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.1)
-    ], additional_targets={"depth": "image"}) # depth gets same spatial transform
+    ])
+
+    spatial_side = A.Compose([
+        A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
+        A.HorizontalFlip(p=0.5),
+    ])
 
     photometric = A.Compose([
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
         A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
         A.GaussianBlur(blur_limit=(3, 7), p=0.2),
         A.GaussNoise(std_range=(5.0 / 255.0, 255.0 / 255.0) , p=0.2)
-    ]) # RGB only
+    ])
 
-    return spatial, photometric
+    return spatial_overhead, spatial_side, photometric
 
 
 def get_mean_absolute_percentage_error(pred: torch.Tensor, target: torch.Tensor) -> float:
@@ -386,6 +413,13 @@ def validate(
         "mae": get_mean_absolute_error(all_preds, all_targets)
     }
 
+
+def worker_init_fn(worker_id: int) -> None:
+    "Reseed numpy per DataLoader worker to ensure the random view/frame selection is actually independent"
+    worker_seed = (torch.initial_seed() + worker_id) % (2 ** 32)
+    np.random.seed(worker_seed)
+
+
 def main(args):
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -435,43 +469,49 @@ def main(args):
     )
 
     train_transform, val_transform = get_transforms(img_size=args.img_size)
-    spatial_aug, photometric_aug = build_train_augmentation(img_size=args.img_size)
+    spatial_overhead_aug, spatial_side_aug, photometric_aug = build_train_augmentation(img_size=args.img_size)
 
-    full_dataset = Nutrition5KDataset(
-        data_root = args.data_root,
-        dish_ids = dish_ids,
-        volume_lookup = volume_lookup,
-        transform = train_transform,
-        spatial_aug = spatial_aug,
-        photometric_aug = photometric_aug,
-        augment_tilt = True
-    )
+    valid_dish_ids = [d for d in dish_ids if d in volume_lookup]
+    rng = random.Random(42)
+    rng.shuffle(valid_dish_ids)
 
-    # Split: 80% train, 15% val, 5% test
-    n_total = len(full_dataset)
+    n_total = len(valid_dish_ids)
     n_val = max(1, int(n_total * 0.15))
     n_test = max(1, int(n_total * 0.05))
     n_train = n_total - n_val - n_test
 
-    train_set, val_set, test_set = random_split(
-        full_dataset,
-        [n_train, n_val, n_test],
-        generator=torch.Generator().manual_seed(42)
+    train_ids = valid_dish_ids[:n_train]
+    val_ids = valid_dish_ids[n_train:n_train + n_val]
+    test_ids = valid_dish_ids[n_train + n_val:]
+
+    logger.info(f"Split (by dish): train={len(train_ids)} | val={len(val_ids)} | test={len(test_ids)}")
+
+    train_set = Nutrition5KDataset(
+        data_root=args.data_root,
+        dish_ids=train_ids,
+        volume_lookup=volume_lookup,
+        transform=train_transform,
+        mode="train",
+        spatial_aug_overhead=spatial_overhead_aug,
+        spatial_aug_side=spatial_side_aug,
+        photometric_aug=photometric_aug,
+        augment_tilt=True
+    )
+    val_set = Nutrition5KDataset(
+        data_root=args.data_root,
+        dish_ids=val_ids,
+        volume_lookup=volume_lookup,
+        transform=val_transform,
+        mode="val"
+    )
+    test_set = Nutrition5KDataset(
+        data_root=args.data_root,
+        dish_ids=test_ids,
+        volume_lookup=volume_lookup,
+        transform=val_transform,
+        mode="test"
     )
 
-    # Use deterministic transforms for val/test (no augmentation)
-    val_set.dataset = Nutrition5KDataset(
-        data_root = args.data_root,
-        dish_ids = dish_ids,
-        volume_lookup = volume_lookup,
-        transform = val_transform,
-        spatial_aug = None,
-        photometric_aug = None,
-        augment_tilt = False
-    )
-    test_set.dataset = val_set.dataset
-
-    logger.info(f"Split: train={n_train} | val={n_val} | test={n_test}")
 
     # --- DataLoaders ---
     train_loader = DataLoader(
@@ -479,7 +519,8 @@ def main(args):
         batch_size = args.batch,
         shuffle = True,
         num_workers = args.workers,
-        pin_memory = device.type != "mps" # pin_memory unsupported on MPS
+        pin_memory = device.type != "mps", # pin_memory unsupported on MPS
+        worker_init_fn=worker_init_fn
     )
     val_loader = DataLoader(
         val_set,
@@ -554,6 +595,8 @@ def main(args):
     logger.info(f"Best checkpoint: {best_ckpt}")
 
 if __name__ == "__main__":
+    #/uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset
+    # /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6
     parser = argparse.ArgumentParser(description="ConvNeXt-Tiny volume regression - Nutrition5K")
     parser.add_argument("--data_root", type=str, default="./data/nutrition5k_dataset")
     parser.add_argument("--metadata", type=str, default="./data/dish_metadata_cafe1.csv")
