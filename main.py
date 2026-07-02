@@ -15,7 +15,7 @@ import torchvision.models as models
 from PIL import Image
 from pillow_heif import register_heif_opener
 
-from model_manage import register_loader, get_model, release_model
+from model_manage import register_loader, get_model
 
 register_heif_opener()
 
@@ -28,8 +28,6 @@ import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
-
-from visualise_volume_3d import visualise_volume_3d
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
@@ -133,7 +131,7 @@ def load_model(model_path: str) -> nn.Module:
         nn.Linear(256, 1),
         nn.Softplus()
     )
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location="cpu")
     model.load_state_dict(checkpoint["state_dict"])
     return model.eval()
 
@@ -201,10 +199,9 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
     inputs = processor(images=pillow_image, return_tensors="pt")  # preprocesses the image to ensure conformity to the model
     inputs = {k: v.to(torch_device) for k, v in inputs.items()}
 
-    depth_model = get_model("depthpro")
+    depth_model = get_model("depthpro", next_name="sam3")
     with torch.no_grad():
         outputs = depth_model(**inputs)
-    release_model("depthpro")
 
     post_processed = processor.post_process_depth_estimation(
         outputs,
@@ -326,7 +323,6 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     sam3 = get_model("sam3")
     with torch.no_grad():
         outputs = sam3(**inputs)
-    release_model("sam3")
 
     results = sam3_processor.post_process_instance_segmentation(
         outputs,
@@ -539,8 +535,6 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     volume_res = compute_volume(depth_map, food_mask, image_info, plate_depth_m)
     logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
-    visualise_volume_3d(depth_map, food_mask, image_info, plate_depth_m, volume_res, pil_image=pillow_image)
-
     # Render debug visualisations
     depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
     depth_bytes = base64.b64decode(depth_b64)
@@ -579,7 +573,6 @@ def run_custom_model(image: Image.Image, depth_map: np.ndarray) -> float:
 
     model = get_model("custom_volume")
     result = model(tensor).squeeze().item()
-    release_model("custom_volume")
     return result
 
 @app.post("/api/v1/estimate-volume-dl")

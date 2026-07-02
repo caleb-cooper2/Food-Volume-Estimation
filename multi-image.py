@@ -14,7 +14,7 @@ from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
 from main import estimate_depth, segment_food
-from model_manage import register_loader, release_model, get_model
+from model_manage import register_loader, get_model, preload_all
 
 app = FastAPI(title="Volume Estimation API - Multi-Image")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -52,6 +52,9 @@ def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
     # Poisson reconstruction -> produces a watertight mesh
     mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd)
 
+    o3d.io.write_triangle_mesh("/tmp/debug_food_mesh.ply", mesh)
+    #image_names = ["data/camera_Aframe001.jpeg", "data/camera_Bframe027.jpeg", "data/camera_Aframe029.jpeg"]
+
     # Which can be converted to a trimesh and volume can be derived
     trimesh_result = trimesh.Trimesh(
         vertices=np.asarray(mesh.vertices),
@@ -59,6 +62,11 @@ def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
     )
     volume_m3 = abs(trimesh_result.volume) # it is in m3 as that is what depth map + vggt provides
     return volume_m3 * 1_000_000.0  # computer to cm^3
+
+
+@app.on_event("startup")
+def startup_event():
+    preload_all()
 
 
 @app.post("/api/v1/estimate-volume-multiview")
@@ -82,7 +90,6 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     with torch.no_grad():
         with torch.autocast(device_type=device, dtype=dtype):
             predictions = vggt_model(images_tensor.to(torch.device(device)))
-    release_model("vggt")
 
     world_points = predictions["world_points"][0, 0].cpu().numpy()  # (H, W, 3)
     vggt_depth = predictions["depth"][0, 0].cpu().numpy().squeeze(-1)  # (H, W)
