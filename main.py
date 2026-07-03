@@ -291,7 +291,7 @@ def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores:
     return base64.b64encode(buf.read()).decode("utf-8")
 
 
-def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float]]:
+def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float], list[np.ndarray]]:
     """
     Segment food region using SAM 3 with text prompt "food".
     Falls back to full-image mask if no instances found.
@@ -318,10 +318,11 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
 
     if instance_masks.shape[0] == 0:
         logger.warning("  SAM 3 | No food instances found — using full-image fallback mask")
-        logger.warning("  SAM 3 | Scale correction will be unreliable (no background pixels)")
-        return np.ones((img_h, img_w), dtype=np.uint8), []
+        fallback = np.ones((img_h, img_w), dtype=np.uint8)
+        return fallback, [], [fallback]
 
     instance_scores_list = instance_scores.tolist()
+    instance_masks_list = [m.cpu().numpy().astype(np.uint8) for m in instance_masks]
 
     # Log per-instance breakdown before union
     for i, s in enumerate(instance_scores_list):
@@ -340,17 +341,11 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     )
 
     if union_pct > 80.0:
-        logger.warning(
-            f"  SAM 3 | Food mask covers {union_pct:.1f}% of image — "
-            f"background region too small for reliable plane fitting"
-        )
+        logger.warning(f"  SAM 3 | Food mask covers {union_pct:.1f}% of image -> background region too small for reliable plane fitting")
     if union_pct < 2.0:
-        logger.warning(
-            f"  SAM 3 | Food mask covers only {union_pct:.1f}% of image — "
-            f"possible segmentation failure"
-        )
+        logger.warning(f"  SAM 3 | Food mask covers only {union_pct:.1f}% of image -> possible segmentation failure")
 
-    return union_mask, instance_scores_list
+    return union_mask, instance_scores_list, instance_masks_list
 
 
 def estimate_plate_depth(depth_map, food_mask) -> float:
@@ -504,7 +499,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     )
 
     t_segmentation_start = time.perf_counter()
-    food_mask, mask_scores = segment_food(pillow_image)  # (H, W) uint8 0/1
+    food_mask, mask_scores, _ = segment_food(pillow_image)  # (H, W) uint8 0/1
     food_pixel_count = int(food_mask.sum())
     food_coverage_pct = food_pixel_count / food_mask.size * 100
     logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
