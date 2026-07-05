@@ -98,6 +98,42 @@ def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_m
 
     return total_volume_cm3
 
+def compute_mask_overlap_coefficient(instance_masks):
+    """
+    Computes the overlap coefficient for a set of binary instance masks. (ratio of area of intersection to area of smaller mask)
+    The coefficient can then be used to perform non-maximum suppression (NMS) to remove duplicate masks that overlap too much
+    """
+    n_instances = len(instance_masks)
+    areas = np.array([m.sum() for m in instance_masks], dtype=np.float64)
+    iou = np.zeros((n_instances, n_instances))
+    overlap_coefficient = np.zeros((n_instances, n_instances))
+
+    for i in range(n_instances):
+        for j in range(i + 1, n_instances):
+            intersection = np.logical_and(instance_masks[i], instance_masks[j]).sum()
+            union = areas[i] + areas[j] - intersection
+            iou[i, j] = iou[j, i] = intersection / union if union > 0 else 0.0 # interception over union
+            min_area = min(areas[i], areas[j])
+            overlap_coefficient[i, j] = overlap_coefficient[j, i] = intersection / min_area if min_area > 0 else 0.0
+
+    return overlap_coefficient
+
+def mask_non_maximum_suppression(instance_masks, scores, overlap_coefficient, containment_threshold=0.6):
+    """Perform NMS over the instance masks based on their scores and overlap coefficient. Masks with high overlap are suppressed"""
+    order = list(np.argsort(scores)[::-1])  # highest score first
+    keep, suppressed = [], set()
+
+    for index in order:
+        if index in suppressed:
+            continue
+        keep.append(index)
+        for j in order:
+            if j == index or j in suppressed:
+                continue
+            if overlap_coefficient[index, j] > containment_threshold:
+                suppressed.add(j)
+
+    return [instance_masks[i] for i in keep]
 
 
 @app.on_event("startup")
@@ -119,6 +155,13 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     # Primary image for SAM 3 segmentation
     primary = pil_images[0]
     food_mask, mask_scores, instance_masks = segment_food(primary)
+
+    iou, overlap_coef = compute_mask_overlap_coefficient(instance_masks)
+    instance_masks_refined = mask_non_maximum_suppression(instance_masks, mask_scores, overlap_coef)
+    logger.info(
+        f"Prior to NMS: {len(instance_masks)} instances, after NMS: {len(instance_masks_refined)} instances"
+        f"The ratio between summed instance area to union mask area is now {sum(m.sum() for m in instance_masks_refined) / food_mask.sum():.3f}"
+    )
 
     # VGGT reconstruction
     images_tensor = load_and_preprocess_images_from_pil(pil_images)
