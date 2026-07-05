@@ -1,7 +1,5 @@
 import io
 import logging
-import os
-import tempfile
 
 import cv2
 import numpy as np
@@ -156,7 +154,7 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     primary = pil_images[0]
     food_mask, mask_scores, instance_masks = segment_food(primary)
 
-    iou, overlap_coef = compute_mask_overlap_coefficient(instance_masks)
+    overlap_coef = compute_mask_overlap_coefficient(instance_masks)
     instance_masks_refined = mask_non_maximum_suppression(instance_masks, mask_scores, overlap_coef)
     logger.info(
         f"Prior to NMS: {len(instance_masks)} instances, after NMS: {len(instance_masks_refined)} instances"
