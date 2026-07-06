@@ -294,12 +294,22 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose,
     spatial_overhead = A.Compose([
         A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
         A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.1)
+        A.VerticalFlip(p=0.1),
+        A.Affine(
+            scale=(0.35, 0.85),
+            border_mode=cv2.BORDER_REPLICATE,
+            p=0.5,
+        )
     ])
 
     spatial_side = A.Compose([
         A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
         A.HorizontalFlip(p=0.5),
+        A.Affine(
+            scale=(0.35, 0.85),
+            border_mode=cv2.BORDER_REPLICATE,
+            p=0.5,
+        )
     ])
 
     photometric = A.Compose([
