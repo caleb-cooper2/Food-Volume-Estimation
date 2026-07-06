@@ -98,6 +98,41 @@ def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_m
 
     return total_volume_cm3
 
+
+def compute_vggt_crop_geometry(orig_width: int, orig_height: int, target_size: int = 518) -> dict:
+    """Mirrors load_and_preprocess_images' crop-mode geometry exactly, for any aspect ratio."""
+    new_width = target_size
+    new_height = round(orig_height * (new_width / orig_width) / 14) * 14
+
+    crop_top = 0
+    if new_height > target_size:
+        crop_top = (new_height - target_size) // 2
+
+    return {
+        "resize_width": new_width,
+        "resize_height": new_height,
+        "crop_top": crop_top,
+        "final_height": min(new_height, target_size),
+    }
+
+
+def align_depth_to_vggt(depth_map: np.ndarray, orig_width: int, orig_height: int, target_size: int = 518) -> np.ndarray:
+    """Resizes and center-crops depth_map to match VGGT's actual working-resolution output"""
+    geo = compute_vggt_crop_geometry(orig_width, orig_height, target_size)
+
+    resized = cv2.resize(
+        depth_map,
+        (geo["resize_width"], geo["resize_height"]),
+        interpolation=cv2.INTER_LINEAR,
+    )
+
+    if geo["resize_height"] > target_size:
+        top = geo["crop_top"]
+        resized = resized[top: top + target_size, :]
+
+    return resized
+
+
 def compute_mask_overlap_coefficient(instance_masks):
     """
     Computes the overlap coefficient for a set of binary instance masks. (ratio of area of intersection to area of smaller mask)
@@ -117,6 +152,7 @@ def compute_mask_overlap_coefficient(instance_masks):
             overlap_coefficient[i, j] = overlap_coefficient[j, i] = intersection / min_area if min_area > 0 else 0.0
 
     return overlap_coefficient
+
 
 def mask_non_maximum_suppression(instance_masks, scores, overlap_coefficient, containment_threshold=0.6):
     """Perform NMS over the instance masks based on their scores and overlap coefficient. Masks with high overlap are suppressed"""
@@ -159,7 +195,7 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     overlap_coef = compute_mask_overlap_coefficient(instance_masks)
     instance_masks_refined = mask_non_maximum_suppression(instance_masks, mask_scores, overlap_coef)
     logger.info(
-        f"Prior to NMS: {len(instance_masks)} instances, after NMS: {len(instance_masks_refined)} instances"
+        f"Prior to NMS: {len(instance_masks)} instances, after NMS: {len(instance_masks_refined)} instances "
         f"The ratio between summed instance area to union mask area is now {sum(m.sum() for m in instance_masks_refined) / food_mask.sum():.3f}"
     )
 
@@ -188,11 +224,9 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
 
     # Have to get a scale anchor using DepthPro on primary image, resized to match VGGT
     depth_metric, focal_px = estimate_depth(primary)
-    depth_metric_resized = cv2.resize(
-        depth_metric,
-        (vggt_depth.shape[1], vggt_depth.shape[0]),
-        interpolation=cv2.INTER_LINEAR,
-    )
+    depth_metric_resized = align_depth_to_vggt(depth_metric, primary.width, primary.height)
+
+    logger.info(f"Depth metric after resize: {depth_metric_resized.shape}, VGGT: {vggt_depth.shape}. In theory, these should match")
 
     scale = float(np.median(depth_metric_resized[bg_mask]) / np.median(vggt_depth[bg_mask]))
     print(f"VGGT scale factor from DepthPro: {scale:.4f}")
