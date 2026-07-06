@@ -1,5 +1,7 @@
 import io
 import logging
+import os
+import tempfile
 
 import cv2
 import numpy as np
