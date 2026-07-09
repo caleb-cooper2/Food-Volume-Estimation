@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 import tempfile
@@ -9,7 +10,7 @@ import open3d as o3d
 import torch
 import trimesh
 from PIL import Image
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
@@ -30,6 +31,8 @@ else:
     device = "cpu"
 
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+
+SEMANTIC_CV_FLOOR = 0.15  # rough uncertainty we give the geometric estimate when fusing with the NLP prior
 
 register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
 
@@ -172,13 +175,42 @@ def mask_non_maximum_suppression(instance_masks, scores, overlap_coefficient, co
     return [instance_masks[i] for i in keep]
 
 
+def fuse_lognormal(v_geo: float, cv_geo: float, v_prior: float, cv_prior: float) -> dict:
+    """Blend the geometric volume with the NLP portion prior in log space (volumes are positive
+    with multiplicative error, so log-normal is the natural fit). Inverse-variance weighting, so
+    whichever estimate is more confident pulls harder."""
+    var_g = np.log1p(cv_geo ** 2)
+    var_p = np.log1p(cv_prior ** 2)
+    wg, wp = 1.0 / var_g, 1.0 / var_p
+    mu = (wg * np.log(v_geo) + wp * np.log(v_prior)) / (wg + wp)
+    var = 1.0 / (wg + wp)
+    return {"volume_cm3": round(float(np.exp(mu)), 2), "cv": round(float(np.sqrt(np.expm1(var))), 3)}
+
+
+def parse_semantic_context(context: str | None) -> dict | None:
+    """Optional JSON prior from the NLP pipeline, e.g. {"total_prior_cm3": 240, "total_prior_cv": 0.3}.
+    Only total_prior_cm3 is needed. Returns None if it's missing/unparseable so fusion just gets skipped."""
+    if not context:
+        return None
+    try:
+        data = json.loads(context)
+        if data.get("total_prior_cm3"):
+            return data
+    except Exception as e:
+        logger.warning(f"Could not parse semantic context: {e}")
+    return None
+
+
 @app.on_event("startup")
 def startup_event():
     preload_all()
 
 
 @app.post("/api/v1/estimate-volume-multiview")
-async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
+async def volume_estimation_multiview(
+        files: list[UploadFile] = File(...),
+        context: str | None = Form(None),  # optional NLP semantic prior, JSON string
+):
     # no minimum image amount as vggt outlines that single image performance is still acceptable?
     if len(files) > 10:
         raise HTTPException(400, "Maximum 10 images supported")
@@ -234,10 +266,38 @@ async def volume_estimation_multiview(files: list[UploadFile] = File(...)):
     world_points_metric = world_points * scale
 
     food_points_metric = world_points_metric[food_mask_resized > 0]
-    volume_cm3 = compute_volume_from_mesh(food_points_metric)
-    print(volume_cm3)
+    volume_blob_cm3 = compute_volume_from_mesh(food_points_metric)
+    print(volume_blob_cm3)
 
     print("-----------------------------------------")
 
-    volume_cm3 = compute_volume_per_instance(instance_masks, world_points_metric)
-    print(volume_cm3)
+    # per-instance beats the single blob, and use the NMS-refined masks (we already computed them above, no point double-counting the raw overlaps)
+    volume_instance_cm3 = compute_volume_per_instance(instance_masks_refined, world_points_metric)
+    print(volume_instance_cm3)
+
+    volume_cm3 = volume_instance_cm3
+    response = {
+        "volume_cm3": round(volume_cm3, 2),
+        "volume_instance_cm3": round(volume_instance_cm3, 2),
+        "volume_blob_cm3": round(volume_blob_cm3, 2),
+        "scale": round(scale, 4),
+        "semantic_fusion": None,
+    }
+
+    # optional: fuse with the NLP portion prior if one was passed. inert until the NLP side actually sends context
+    sem = parse_semantic_context(context)
+    if sem is not None:
+        fused = fuse_lognormal(
+            volume_cm3, SEMANTIC_CV_FLOOR,
+            float(sem["total_prior_cm3"]), float(sem.get("total_prior_cv", 0.3)),
+        )
+        response["volume_cm3"] = fused["volume_cm3"]
+        response["semantic_fusion"] = {
+            "prior_cm3": float(sem["total_prior_cm3"]),
+            "fused_cm3": fused["volume_cm3"],
+            "fused_cv": fused["cv"],
+        }
+        logger.info(f"Fused geometric {volume_cm3:.1f} with prior {sem['total_prior_cm3']:.1f} -> {fused['volume_cm3']:.1f} cm^3")
+
+
+    logger.info(response)
