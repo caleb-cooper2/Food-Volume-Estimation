@@ -1,5 +1,5 @@
 """
-ConvNeXt-Tiny volume regression trainer on Nutrition5k dataset
+ConvNeXt-Tiny volume/mass regression trainer on Nutrition5k dataset
 
 Using the following tutorials as a starting point:
 - https://docs.pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
@@ -109,14 +109,14 @@ def is_valid_file(path: Path) -> bool:
 
 class Nutrition5KDataset(Dataset):
     """
-    Loads RGB images and ground-truth volumes from Nutrition5K dataset.
+    Loads RGB images and ground-truth targets from Nutrition5K dataset.
     """
 
     def __init__(
             self,
             data_root: str,
             dish_ids: list[str],
-            volume_lookup: dict[str, float],
+            target_lookup: dict[str, float],
             transform,
             mode: str,
             spatial_aug_overhead: A.Compose | None = None,
@@ -128,7 +128,7 @@ class Nutrition5KDataset(Dataset):
         self.transform = transform
         self.mode = mode
         self.augment_tilt = augment_tilt and mode == "train"
-        self.volume_lookup = volume_lookup
+        self.target_lookup = target_lookup
         self.spatial_aug_overhead = spatial_aug_overhead
         self.spatial_aug_side = spatial_aug_side
         self.photometric_aug = photometric_aug
@@ -139,8 +139,8 @@ class Nutrition5KDataset(Dataset):
         n_side_only = 0
 
         for dish_id in dish_ids:
-            if dish_id not in self.volume_lookup:
-                logger.warning(f"Skipping dish {dish_id} as it's not in the volume lookup")
+            if dish_id not in self.target_lookup:
+                logger.warning(f"Skipping dish {dish_id} as it's not in the target lookup")
                 continue
             manifest = self.discover_views(dish_id)
             if manifest["overhead"] is None and not manifest["side_by_camera"]:
@@ -221,21 +221,33 @@ class Nutrition5KDataset(Dataset):
         if self.augment_tilt and view_type == "overhead":
             rgb = apply_random_tilt(rgb)
 
-        volume_cm3 = self.volume_lookup[dish_id]
+        target = self.target_lookup[dish_id]
         rgb_tensor = self.transform(Image.fromarray(rgb))
 
         return {
             "rgb": rgb_tensor,
-            "volume_cm3": torch.tensor(volume_cm3, dtype=torch.float32),
+            "target": torch.tensor(target, dtype=torch.float32),
             "dish_id": dish_id,
             "view_type": view_type
         }
 
 
-def build_model(freeze_backbone: bool = False) -> nn.Module:
+def build_model(
+        freeze_backbone: bool = False,
+        log_target: bool = True,
+        head_bias_init: float | None = None,
+) -> nn.Module:
     """
     Load pretrained ConvNeXt-Tiny and replace classification head with regression head.
     If freeze_backbone=True, keep backbone frozen and only enable classifier gradients.
+
+    In log-space mode the head outputs an unbounded real value (interpreted as
+    log target); positivity is guaranteed by exp() at read-out, so Softplus is
+    dropped. In raw mode Softplus is kept.
+
+    head_bias_init warm-starts the final bias to the mean target (mean log-target
+    in log mode). Zeroing the final weight makes the initial prediction exactly
+    that mean, which removes the ~12,000 opening loss and the slow first epochs.
     """
     model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
 
@@ -243,13 +255,21 @@ def build_model(freeze_backbone: bool = False) -> nn.Module:
         for param in model.parameters():
             param.requires_grad = False
 
-    model.classifier[2] = nn.Sequential(
+    head_layers = [
         nn.Linear(768, 256),
         nn.GELU(),
         nn.Dropout(0.3),
         nn.Linear(256, 1),
-        nn.Softplus()
-    )
+    ]
+    if not log_target:
+        head_layers.append(nn.Softplus())
+    model.classifier[2] = nn.Sequential(*head_layers)
+
+    # Final Linear is index 3 in both cases (Softplus, when present, sits after it)
+    final_linear = model.classifier[2][3]
+    if head_bias_init is not None:
+        nn.init.zeros_(final_linear.weight)
+        final_linear.bias.data.fill_(float(head_bias_init))
 
     for param in model.classifier.parameters():
         param.requires_grad = True
@@ -323,15 +343,22 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose,
 
 
 def get_mean_absolute_percentage_error(pred: torch.Tensor, target: torch.Tensor) -> float:
-    """MAPE with 1 cm^3 epsilon to avoid division by very small targets."""
+    """MAPE with a 1-unit epsilon to avoid division by very small targets."""
     eps = 1.0
     mape = torch.mean(torch.abs(pred-target) / torch.clamp(torch.abs(target), min=eps))
     return mape.item() * 100.0
 
 
 def get_mean_absolute_error(pred: torch.Tensor, target: torch.Tensor) -> float:
-    """MAE in cm^3"""
+    """MAE in the target's units (g for mass, cm^3 for volume_density)."""
     return torch.mean(torch.abs(pred-target)).item()
+
+
+def _to_real(model_out: torch.Tensor, log_target: bool) -> torch.Tensor:
+    """Map the model output back to real target units (grams or cm^3)."""
+    if log_target:
+        return torch.exp(model_out)
+    return model_out
 
 
 def train_one_epoch(
@@ -341,6 +368,7 @@ def train_one_epoch(
         optimiser: torch.optim.Optimizer,
         device: torch.device,
         epoch: int,
+        log_target: bool,
         scheduler=None
 ) -> dict:
     """Train for one epoch. Accumulate predictions and targets for epoch-level metrics."""
@@ -353,10 +381,11 @@ def train_one_epoch(
 
     for batch_idx, batch in enumerate(loader):
         rgb = batch["rgb"].to(device)
-        target = batch["volume_cm3"].to(device)
+        target = batch["target"].to(device)
 
-        pred = model(rgb).squeeze(1)
-        loss = loss_fn(pred, target)
+        out = model(rgb).squeeze(1)
+        target_model = torch.log(target) if log_target else target # match the space the loss is computed in
+        loss = loss_fn(out, target_model)
 
         #backwards pass
         optimiser.zero_grad()
@@ -368,13 +397,13 @@ def train_one_epoch(
             scheduler.step()
 
         total_loss += loss.item()
-        all_preds.append(pred.detach().cpu())
+        all_preds.append(_to_real(out, log_target).detach().cpu()) # metrics always in real units
         all_targets.append(target.detach().cpu())
 
         if (batch_idx + 1) % 20 == 0:
             logger.info(
                 f"  Epoch {epoch} | batch {batch_idx+1}/{len(loader)} | "
-                f"loss={loss.item():.2f}"
+                f"loss={loss.item():.4f}"
             )
 
     all_preds = torch.cat(all_preds)
@@ -392,7 +421,9 @@ def validate(
         model: nn.Module,
         loader: DataLoader,
         loss_fn: nn.Module,
-        device: torch.device
+        device: torch.device,
+        log_target: bool,
+        tta: bool = False,
 ) -> dict:
     """
     Evaluate on validation/test set without gradient updates.
@@ -405,13 +436,19 @@ def validate(
 
     for batch in loader:
         rgb = batch["rgb"].to(device)
-        target = batch["volume_cm3"].to(device)
+        target = batch["target"].to(device)
 
-        pred = model(rgb).squeeze(1)
-        loss = loss_fn(pred, target)
+        out = model(rgb).squeeze(1)
+        target_model = torch.log(target) if log_target else target
+        total_loss += loss_fn(out, target_model).item()
 
-        total_loss += loss.item()
-        all_preds.append(pred.cpu())
+        pred_real = _to_real(out, log_target)
+        if tta:
+            # horizontal-flip TTA: average the prediction over the image and its mirror
+            out_flip = model(torch.flip(rgb, dims=[3])).squeeze(1)
+            pred_real = 0.5 * (pred_real + _to_real(out_flip, log_target))
+
+        all_preds.append(pred_real.cpu())
         all_targets.append(target.cpu())
 
     all_preds = torch.cat(all_preds)
@@ -430,6 +467,30 @@ def worker_init_fn(worker_id: int) -> None:
     np.random.seed(worker_seed)
 
 
+def build_target_lookup(args, dish_ids, mass_g) -> tuple[dict[str, float], str]:
+    """Return (dish_id -> target, unit_label) according to --target."""
+    mass_min_g, mass_max_g = 20.0, 1500.0
+
+    if args.target == "mass":
+        values = mass_g
+        unit = "g"
+    else:  # volume_density: convert mass to a volume proxy via average food density
+        values = mass_g / args.density
+        unit = "cm3"
+
+    lookup = {
+        d: float(v)
+        for d, m, v in zip(dish_ids, mass_g, values)
+        if pd.notna(m) and mass_min_g <= m <= mass_max_g
+    }
+    n_filtered = len(dish_ids) - len(lookup)
+    logger.info(
+        f"Target={args.target} [{unit}]: {len(lookup)} dishes after filtering "
+        f"({n_filtered} removed outside {mass_min_g}–{mass_max_g}g range)"
+    )
+    return lookup, unit
+
+
 def main(args):
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -439,7 +500,7 @@ def main(args):
         device = torch.device("cpu")
     logger.info(f"Device: {device}")
 
-    # Load metadata and extract ground-truth volumes
+    # Load metadata and extract ground-truth targets
     meta = pd.read_csv(
         args.metadata,
         header=None,
@@ -453,35 +514,17 @@ def main(args):
 
     logger.info(f"Mass col raw: min={mass_g.min():.1f}  mean={mass_g.mean():.1f}  max={mass_g.max():.1f}")
 
-    # Convert mass to volume via average food density
-    mass_min_g = 20.0
-    mass_max_g = 1500.0
-    density_g_cm3 = 0.8 # g/cm^3, mean food density
+    target_lookup, unit = build_target_lookup(args, dish_ids, mass_g)
 
-    volume_cm3 = mass_g / density_g_cm3
-
-    volume_lookup: dict[str, float] = {
-        dish_id: vol
-        for dish_id, mass, vol in zip(dish_ids, mass_g, volume_cm3)
-        if pd.notna(mass) and mass_min_g <= mass <= mass_max_g
-    }
-
-    n_filtered = len(dish_ids) - len(volume_lookup)
+    values = list(target_lookup.values())
     logger.info(
-        f"Volume GT: {len(volume_lookup)} dishes after filtering "
-        f"({n_filtered} removed outside {mass_min_g}–{mass_max_g}g range)"
-    )
-
-    volumes = list(volume_lookup.values())
-    logger.info(
-        f"Volume GT stats: min={min(volumes):.1f}  mean={sum(volumes)/len(volumes):.1f}  "
-        f"max={max(volumes):.1f} cm³"
+        f"Target stats [{unit}]: min={min(values):.1f}  mean={sum(values)/len(values):.1f}  max={max(values):.1f}"
     )
 
     train_transform, val_transform = get_transforms(img_size=args.img_size)
     spatial_overhead_aug, spatial_side_aug, photometric_aug = build_train_augmentation(img_size=args.img_size)
 
-    valid_dish_ids = [d for d in dish_ids if d in volume_lookup]
+    valid_dish_ids = [d for d in dish_ids if d in target_lookup]
     rng = random.Random(42)
     rng.shuffle(valid_dish_ids)
 
@@ -496,10 +539,15 @@ def main(args):
 
     logger.info(f"Split (by dish): train={len(train_ids)} | val={len(val_ids)} | test={len(test_ids)}")
 
+    # Warm-start bias: mean log-target (log mode) or mean target (raw mode)
+    train_values = np.array([target_lookup[d] for d in train_ids], dtype=np.float64)
+    head_bias_init = float(np.mean(np.log(train_values))) if args.log_target else float(np.mean(train_values))
+    logger.info(f"Head bias init = {head_bias_init:.4f} ({'log-space' if args.log_target else 'raw'})")
+
     train_set = Nutrition5KDataset(
         data_root=args.data_root,
         dish_ids=train_ids,
-        volume_lookup=volume_lookup,
+        target_lookup=target_lookup,
         transform=train_transform,
         mode="train",
         spatial_aug_overhead=spatial_overhead_aug,
@@ -510,14 +558,14 @@ def main(args):
     val_set = Nutrition5KDataset(
         data_root=args.data_root,
         dish_ids=val_ids,
-        volume_lookup=volume_lookup,
+        target_lookup=target_lookup,
         transform=val_transform,
         mode="val"
     )
     test_set = Nutrition5KDataset(
         data_root=args.data_root,
         dish_ids=test_ids,
-        volume_lookup=volume_lookup,
+        target_lookup=target_lookup,
         transform=val_transform,
         mode="test"
     )
@@ -541,8 +589,14 @@ def main(args):
     )
 
     # --- Phase 1: Only training head ---
-    model = build_model(freeze_backbone=True).to(device)
-    loss_fn = nn.HuberLoss(delta=50.0)
+    model = build_model(
+        freeze_backbone=True,
+        log_target=args.log_target,
+        head_bias_init=head_bias_init,
+    ).to(device)
+
+    # log-space MSE optimises relative error and is robust to the skewed target.
+    loss_fn = nn.MSELoss() if args.log_target else nn.HuberLoss(delta=50.0)
 
     head_params = list(model.classifier.parameters())
     optimiser = torch.optim.AdamW(head_params, lr=args.lr, weight_decay=1e-4)
@@ -568,13 +622,15 @@ def main(args):
                 T_max=(args.epochs - args.warmup_epochs) * len(train_loader),
             )
 
-        train_metrics = train_one_epoch(model, train_loader, loss_fn, optimiser, device, epoch, scheduler)
-        val_metrics = validate(model, val_loader, loss_fn, device)
+        train_metrics = train_one_epoch(
+            model, train_loader, loss_fn, optimiser, device, epoch, args.log_target, scheduler,
+        )
+        val_metrics = validate(model, val_loader, loss_fn, device, args.log_target, tta=args.tta)
 
         logger.info(
             f"Epoch {epoch:3d}/{args.epochs} | "
-            f"train loss={train_metrics['loss']:.2f}  mape={train_metrics['mape']:.1f}%  mae={train_metrics['mae']:.1f}cm³ | "
-            f"val   loss={val_metrics['loss']:.2f}  mape={val_metrics['mape']:.1f}%  mae={val_metrics['mae']:.1f}cm³ | "
+            f"train loss={train_metrics['loss']:.4f}  mape={train_metrics['mape']:.1f}%  mae={train_metrics['mae']:.1f}{unit} | "
+            f"val   loss={val_metrics['loss']:.4f}  mape={val_metrics['mape']:.1f}%  mae={val_metrics['mae']:.1f}{unit} | "
             f"lr={optimiser.param_groups[-1]['lr']:.2e} | "
             f"time={train_metrics['time']:.1f}s"
         )
@@ -587,7 +643,8 @@ def main(args):
                 "state_dict": model.state_dict(),
                 "val_mape": best_val_mape,
                 "val_mae": val_metrics["mae"],
-                "args": vars(args)
+                "args": vars(args),
+                "unit": unit,
             }, best_ckpt)
             logger.info(f"  ✓ New best val MAPE={best_val_mape:.1f}% - saved to {best_ckpt}")
 
@@ -600,14 +657,14 @@ def main(args):
     )
     checkpoint = torch.load(best_ckpt, map_location=device)
     model.load_state_dict(checkpoint["state_dict"])
-    test_metrics = validate(model, test_loader, loss_fn, device)
-    logger.info(f"Test | mape={test_metrics['mape']:.1f}%  mae={test_metrics['mae']:.1f}cm³  loss={test_metrics['loss']:.2f}")
+    test_metrics = validate(model, test_loader, loss_fn, device, args.log_target, tta=args.tta)
+    logger.info(f"Test | mape={test_metrics['mape']:.1f}%  mae={test_metrics['mae']:.1f}{unit}  loss={test_metrics['loss']:.4f}")
     logger.info(f"Best checkpoint: {best_ckpt}")
 
 if __name__ == "__main__":
     #/uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset
     # /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6
-    parser = argparse.ArgumentParser(description="ConvNeXt-Tiny volume regression - Nutrition5K")
+    parser = argparse.ArgumentParser(description="ConvNeXt-Tiny mass/volume regression - Nutrition5K")
     parser.add_argument("--data_root", type=str, default="./data/nutrition5k_dataset")
     parser.add_argument("--metadata", type=str, default="./data/dish_metadata_cafe1.csv")
     parser.add_argument("--output", type=str, default="./checkpoints")
@@ -617,6 +674,14 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--img_size", type=int, default=224)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--target", choices=["mass", "volume_density"], default="mass",
+                        help="Regression target. mass is honest and matches Nutrition5k baselines.")
+    parser.add_argument("--density", type=float, default=0.8,
+                        help="Only used by --target volume_density (mass/density).")
+    parser.add_argument("--log_target", action=argparse.BooleanOptionalAction, default=True,
+                        help="Regress in log space (recommended for the skewed target).")
+    parser.add_argument("--tta", action=argparse.BooleanOptionalAction, default=True,
+                        help="Horizontal-flip test-time augmentation at val/test.")
 
     args = parser.parse_args()
     main(args)

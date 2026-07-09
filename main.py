@@ -27,7 +27,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from transformers import DepthProImageProcessor, DepthProForDepthEstimation, Sam3Processor, Sam3Model
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Processor, Sam3Model
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
@@ -86,11 +86,11 @@ else:
 
 torch_dtype = torch.bfloat16
 torch_device = torch.device(device)
-processor = DepthProImageProcessor.from_pretrained("apple/DepthPro-hf")
+processor = AutoImageProcessor.from_pretrained("apple/DepthPro-hf")
 sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
 
 def _load_depth_model():
-    m = DepthProForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype)
+    m = AutoModelForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype)
     return m.eval()
 
 def _load_sam3_model():
@@ -105,19 +105,25 @@ def load_model(model_path: str) -> nn.Module:
     Loads a custom trained model using torchvisions convnext_tiny.
     Matches setup of the training.
     """
-    model = models.convnext_tiny(weights=None)
-    model.classifier[2] = nn.Sequential(
+    checkpoint = torch.load(model_path, map_location="cpu")
+    log_target = bool(checkpoint.get("args", {}).get("log_target", False))
+
+    head_layers = [
         nn.Linear(768, 256),
         nn.GELU(),
         nn.Dropout(0.3),
         nn.Linear(256, 1),
-        nn.Softplus()
-    )
-    checkpoint = torch.load(model_path, map_location="cpu")
+    ]
+    if not log_target:
+        head_layers.append(nn.Softplus())
+
+    model = models.convnext_tiny(weights=None)
+    model.classifier[2] = nn.Sequential(*head_layers)
     model.load_state_dict(checkpoint["state_dict"])
+    model._log_target = log_target  # stash for read-out
     return model.eval()
 
-register_loader("custom_volume", lambda: load_model("models/trained-full-side-angles.pt"))
+register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
 
 _rgb_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -540,12 +546,13 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
 
 @torch.no_grad()
 def run_custom_model(image: Image.Image) -> float:
-    """Estimate volume using custom trained model weights"""
+    """Estimate mass (g) using custom trained model weights."""
     tensor = _rgb_transform(image).unsqueeze(0).to(device)
-
     model = get_model("custom_volume")
-    result = model(tensor).squeeze().item()
-    return result
+    out = model(tensor).squeeze().item()
+    if getattr(model, "_log_target", False):
+        out = float(np.exp(out))
+    return out
 
 @app.post("/api/v1/estimate-volume-dl")
 async def volume_estimation_dl(file: UploadFile = File(...)):
@@ -574,7 +581,7 @@ async def volume_estimation_dl(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
 
     with torch.no_grad():
-        volume = run_custom_model(pillow_image)
+        mass = run_custom_model(pillow_image)
 
-    logger.info(f"Model estimated volume: {volume:.2f} cm^3")
+    logger.info(f"Model estimated mass: {mass:.2f} g")
     logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")
