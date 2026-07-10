@@ -1,0 +1,444 @@
+(trained volume scalar models)
+
+(.venv) [cco139@cs25004lx ~/IdeaProjects/volume-estimation]$ python train.py   --data_root /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6   --metadata /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6/dish_nutrition_values.csv   --output ./checkpoints   --epochs 50   --warmup_epochs 5   --batch 16   --lr 1e-4 --use_volume
+[12:47:39] INFO Device: cuda
+[12:47:39] INFO Mass col raw: min=1.0  mean=191.4  max=7975.0
+[12:47:39] INFO Target=mass [g]: 4636 dishes after filtering (133 removed outside 20.0–1500.0g range)
+[12:47:39] INFO Target stats [g]: min=20.0  mean=188.2  max=1102.0
+[12:47:39] INFO Volume cache: 3438 dishes with a usable scalar from ./data/volume_scalars.csv
+[12:47:39] INFO --use_volume: 3160/4636 dishes have both a mass target and a cached volume scalar
+[12:47:39] INFO Split (by dish): train=2528 | val=474 | test=158
+[12:47:39] INFO Head bias init = 5.1161 (log-space)
+[12:47:40] WARNING Skipping invalid side angle candidate: /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6/imagery/side_angles/dish_1563294491/camera_Aframe002.jpeg. no match or not valid file
+[12:47:50] INFO Dataset[train]: 2528/2528 dishes usable | overhead+side=1507 | overhead_only=1021 | side_only=0
+[12:47:52] INFO Dataset[val]: 474/474 dishes usable | overhead+side=295 | overhead_only=179 | side_only=0
+[12:47:53] INFO Dataset[test]: 158/158 dishes usable | overhead+side=86 | overhead_only=72 | side_only=0
+[12:47:53] INFO Model: VolumeAssisted ConvNeXt-Tiny | total=28,017,505 | trainable=198,913
+[12:47:56] INFO   Epoch 1 | batch 20/158 | loss=1.0722
+[12:47:58] INFO   Epoch 1 | batch 40/158 | loss=0.3826
+[12:48:01] INFO   Epoch 1 | batch 60/158 | loss=0.9620
+[12:48:04] INFO   Epoch 1 | batch 80/158 | loss=0.5486
+[12:48:06] INFO   Epoch 1 | batch 100/158 | loss=0.2490
+[12:48:08] INFO   Epoch 1 | batch 120/158 | loss=0.3115
+[12:48:11] INFO   Epoch 1 | batch 140/158 | loss=0.1597
+[12:48:17] INFO Epoch   1/50 | train loss=0.4951  mape=72.3%  mae=106.2g | val   loss=0.2318  mape=45.3%  mae=67.5g | lr=9.99e-05 | time=20.1s
+[12:48:18] INFO   ✓ New best val MAPE=45.3% - saved to checkpoints/best_model.pt
+[12:48:20] INFO   Epoch 2 | batch 20/158 | loss=0.6202
+[12:48:23] INFO   Epoch 2 | batch 40/158 | loss=0.4039
+[12:48:26] INFO   Epoch 2 | batch 60/158 | loss=0.2495
+[12:48:28] INFO   Epoch 2 | batch 80/158 | loss=0.2336
+[12:48:31] INFO   Epoch 2 | batch 100/158 | loss=0.3120
+[12:48:33] INFO   Epoch 2 | batch 120/158 | loss=0.2398
+[12:48:36] INFO   Epoch 2 | batch 140/158 | loss=0.1669
+[12:48:41] INFO Epoch   2/50 | train loss=0.3121  mape=52.4%  mae=82.6g | val   loss=0.1856  mape=42.1%  mae=59.2g | lr=9.96e-05 | time=20.3s
+[12:48:42] INFO   ✓ New best val MAPE=42.1% - saved to checkpoints/best_model.pt
+[12:48:45] INFO   Epoch 3 | batch 20/158 | loss=0.2930
+[12:48:48] INFO   Epoch 3 | batch 40/158 | loss=0.3122
+[12:48:50] INFO   Epoch 3 | batch 60/158 | loss=0.2578
+[12:48:53] INFO   Epoch 3 | batch 80/158 | loss=0.1925
+[12:48:55] INFO   Epoch 3 | batch 100/158 | loss=0.4010
+[12:48:58] INFO   Epoch 3 | batch 120/158 | loss=0.1305
+[12:49:00] INFO   Epoch 3 | batch 140/158 | loss=0.2605
+[12:49:05] INFO Epoch   3/50 | train loss=0.2841  mape=49.0%  mae=79.5g | val   loss=0.1534  mape=35.3%  mae=55.0g | lr=9.91e-05 | time=20.2s
+[12:49:06] INFO   ✓ New best val MAPE=35.3% - saved to checkpoints/best_model.pt
+[12:49:09] INFO   Epoch 4 | batch 20/158 | loss=0.3318
+[12:49:11] INFO   Epoch 4 | batch 40/158 | loss=0.1881
+[12:49:14] INFO   Epoch 4 | batch 60/158 | loss=0.1856
+[12:49:17] INFO   Epoch 4 | batch 80/158 | loss=0.3878
+[12:49:19] INFO   Epoch 4 | batch 100/158 | loss=0.2866
+[12:49:22] INFO   Epoch 4 | batch 120/158 | loss=0.3082
+[12:49:24] INFO   Epoch 4 | batch 140/158 | loss=0.4174
+[12:49:29] INFO Epoch   4/50 | train loss=0.2603  mape=45.5%  mae=75.5g | val   loss=0.1633  mape=38.6%  mae=56.6g | lr=9.84e-05 | time=20.3s
+[12:49:32] INFO   Epoch 5 | batch 20/158 | loss=0.2279
+[12:49:35] INFO   Epoch 5 | batch 40/158 | loss=0.1226
+[12:49:38] INFO   Epoch 5 | batch 60/158 | loss=0.2737
+[12:49:40] INFO   Epoch 5 | batch 80/158 | loss=0.4453
+[12:49:43] INFO   Epoch 5 | batch 100/158 | loss=0.1406
+[12:49:45] INFO   Epoch 5 | batch 120/158 | loss=0.2325
+[12:49:47] INFO   Epoch 5 | batch 140/158 | loss=0.1412
+[12:49:53] INFO Epoch   5/50 | train loss=0.2563  mape=45.4%  mae=74.5g | val   loss=0.1438  mape=33.7%  mae=53.0g | lr=9.76e-05 | time=20.4s
+[12:49:54] INFO   ✓ New best val MAPE=33.7% - saved to checkpoints/best_model.pt
+[12:49:54] INFO --- Phase 2: unfreezing backbone at epoch 6 ---
+[12:49:57] INFO   Epoch 6 | batch 20/158 | loss=0.2102
+[12:49:59] INFO   Epoch 6 | batch 40/158 | loss=0.2744
+[12:50:02] INFO   Epoch 6 | batch 60/158 | loss=0.3575
+[12:50:05] INFO   Epoch 6 | batch 80/158 | loss=0.2612
+[12:50:07] INFO   Epoch 6 | batch 100/158 | loss=0.1571
+[12:50:10] INFO   Epoch 6 | batch 120/158 | loss=0.1655
+[12:50:12] INFO   Epoch 6 | batch 140/158 | loss=0.1672
+[12:50:17] INFO Epoch   6/50 | train loss=0.2370  mape=42.7%  mae=71.8g | val   loss=0.1330  mape=34.0%  mae=50.8g | lr=9.99e-05 | time=20.4s
+[12:50:20] INFO   Epoch 7 | batch 20/158 | loss=0.6118
+[12:50:23] INFO   Epoch 7 | batch 40/158 | loss=0.2148
+[12:50:25] INFO   Epoch 7 | batch 60/158 | loss=0.2334
+[12:50:27] INFO   Epoch 7 | batch 80/158 | loss=0.2716
+[12:50:30] INFO   Epoch 7 | batch 100/158 | loss=0.3778
+[12:50:32] INFO   Epoch 7 | batch 120/158 | loss=0.1879
+[12:50:34] INFO   Epoch 7 | batch 140/158 | loss=0.0801
+[12:50:40] INFO Epoch   7/50 | train loss=0.2115  mape=40.5%  mae=66.7g | val   loss=0.1370  mape=34.8%  mae=48.1g | lr=9.95e-05 | time=19.6s
+[12:50:42] INFO   Epoch 8 | batch 20/158 | loss=0.3598
+[12:50:45] INFO   Epoch 8 | batch 40/158 | loss=0.0874
+[12:50:47] INFO   Epoch 8 | batch 60/158 | loss=0.2191
+[12:50:50] INFO   Epoch 8 | batch 80/158 | loss=0.1782
+[12:50:52] INFO   Epoch 8 | batch 100/158 | loss=0.1834
+[12:50:54] INFO   Epoch 8 | batch 120/158 | loss=0.1786
+[12:50:57] INFO   Epoch 8 | batch 140/158 | loss=0.1733
+[12:51:02] INFO Epoch   8/50 | train loss=0.1826  mape=36.0%  mae=62.6g | val   loss=0.1039  mape=27.9%  mae=43.3g | lr=9.89e-05 | time=19.4s
+[12:51:04] INFO   ✓ New best val MAPE=27.9% - saved to checkpoints/best_model.pt
+[12:51:06] INFO   Epoch 9 | batch 20/158 | loss=0.3177
+[12:51:09] INFO   Epoch 9 | batch 40/158 | loss=0.0628
+[12:51:12] INFO   Epoch 9 | batch 60/158 | loss=0.1265
+[12:51:14] INFO   Epoch 9 | batch 80/158 | loss=0.1538
+[12:51:16] INFO   Epoch 9 | batch 100/158 | loss=0.1179
+[12:51:19] INFO   Epoch 9 | batch 120/158 | loss=0.1590
+[12:51:21] INFO   Epoch 9 | batch 140/158 | loss=0.0665
+[12:51:26] INFO Epoch   9/50 | train loss=0.1715  mape=34.7%  mae=62.1g | val   loss=0.1007  mape=25.1%  mae=45.7g | lr=9.81e-05 | time=19.3s
+[12:51:27] INFO   ✓ New best val MAPE=25.1% - saved to checkpoints/best_model.pt
+[12:51:30] INFO   Epoch 10 | batch 20/158 | loss=0.0934
+[12:51:32] INFO   Epoch 10 | batch 40/158 | loss=0.1128
+[12:51:35] INFO   Epoch 10 | batch 60/158 | loss=0.2262
+[12:51:37] INFO   Epoch 10 | batch 80/158 | loss=0.0852
+[12:51:39] INFO   Epoch 10 | batch 100/158 | loss=0.1070
+[12:51:41] INFO   Epoch 10 | batch 120/158 | loss=0.1168
+[12:51:44] INFO   Epoch 10 | batch 140/158 | loss=0.0986
+[12:51:49] INFO Epoch  10/50 | train loss=0.1641  mape=34.1%  mae=59.4g | val   loss=0.0931  mape=23.5%  mae=45.7g | lr=9.70e-05 | time=18.8s
+[12:51:50] INFO   ✓ New best val MAPE=23.5% - saved to checkpoints/best_model.pt
+[12:51:52] INFO   Epoch 11 | batch 20/158 | loss=0.0545
+[12:51:54] INFO   Epoch 11 | batch 40/158 | loss=0.0922
+[12:51:57] INFO   Epoch 11 | batch 60/158 | loss=0.3963
+[12:51:59] INFO   Epoch 11 | batch 80/158 | loss=0.0756
+[12:52:01] INFO   Epoch 11 | batch 100/158 | loss=0.1001
+[12:52:04] INFO   Epoch 11 | batch 120/158 | loss=0.2193
+[12:52:06] INFO   Epoch 11 | batch 140/158 | loss=0.2357
+[12:52:11] INFO Epoch  11/50 | train loss=0.1589  mape=32.5%  mae=56.3g | val   loss=0.0826  mape=23.6%  mae=39.0g | lr=9.57e-05 | time=18.0s
+[12:52:13] INFO   Epoch 12 | batch 20/158 | loss=0.2843
+[12:52:16] INFO   Epoch 12 | batch 40/158 | loss=0.0815
+[12:52:18] INFO   Epoch 12 | batch 60/158 | loss=0.0844
+[12:52:20] INFO   Epoch 12 | batch 80/158 | loss=0.1044
+[12:52:22] INFO   Epoch 12 | batch 100/158 | loss=0.1347
+[12:52:24] INFO   Epoch 12 | batch 120/158 | loss=0.1056
+[12:52:27] INFO   Epoch 12 | batch 140/158 | loss=0.0677
+[12:52:32] INFO Epoch  12/50 | train loss=0.1506  mape=31.6%  mae=55.5g | val   loss=0.0830  mape=24.7%  mae=39.3g | lr=9.41e-05 | time=18.0s
+[12:52:34] INFO   Epoch 13 | batch 20/158 | loss=0.1401
+[12:52:36] INFO   Epoch 13 | batch 40/158 | loss=0.1244
+[12:52:39] INFO   Epoch 13 | batch 60/158 | loss=0.0853
+[12:52:41] INFO   Epoch 13 | batch 80/158 | loss=0.1436
+[12:52:43] INFO   Epoch 13 | batch 100/158 | loss=0.0878
+[12:52:45] INFO   Epoch 13 | batch 120/158 | loss=0.2282
+[12:52:48] INFO   Epoch 13 | batch 140/158 | loss=0.0938
+[12:52:52] INFO Epoch  13/50 | train loss=0.1466  mape=31.5%  mae=54.8g | val   loss=0.0737  mape=21.9%  mae=37.3g | lr=9.24e-05 | time=17.9s
+[12:52:53] INFO   ✓ New best val MAPE=21.9% - saved to checkpoints/best_model.pt
+[12:52:56] INFO   Epoch 14 | batch 20/158 | loss=0.1613
+[12:52:58] INFO   Epoch 14 | batch 40/158 | loss=0.1162
+[12:53:00] INFO   Epoch 14 | batch 60/158 | loss=0.0876
+[12:53:03] INFO   Epoch 14 | batch 80/158 | loss=0.0402
+[12:53:05] INFO   Epoch 14 | batch 100/158 | loss=0.1926
+[12:53:07] INFO   Epoch 14 | batch 120/158 | loss=0.2641
+[12:53:09] INFO   Epoch 14 | batch 140/158 | loss=0.0835
+[12:53:14] INFO Epoch  14/50 | train loss=0.1386  mape=30.8%  mae=52.2g | val   loss=0.0788  mape=23.7%  mae=37.9g | lr=9.05e-05 | time=17.8s
+[12:53:17] INFO   Epoch 15 | batch 20/158 | loss=0.1303
+[12:53:19] INFO   Epoch 15 | batch 40/158 | loss=0.1867
+[12:53:21] INFO   Epoch 15 | batch 60/158 | loss=0.1117
+[12:53:23] INFO   Epoch 15 | batch 80/158 | loss=0.1024
+[12:53:25] INFO   Epoch 15 | batch 100/158 | loss=0.0419
+[12:53:27] INFO   Epoch 15 | batch 120/158 | loss=0.1920
+[12:53:29] INFO   Epoch 15 | batch 140/158 | loss=0.0966
+[12:53:34] INFO Epoch  15/50 | train loss=0.1378  mape=30.6%  mae=53.6g | val   loss=0.0785  mape=23.0%  mae=38.9g | lr=8.83e-05 | time=17.3s
+[12:53:37] INFO   Epoch 16 | batch 20/158 | loss=0.0897
+[12:53:39] INFO   Epoch 16 | batch 40/158 | loss=0.0545
+[12:53:41] INFO   Epoch 16 | batch 60/158 | loss=0.0876
+[12:53:43] INFO   Epoch 16 | batch 80/158 | loss=0.0653
+[12:53:45] INFO   Epoch 16 | batch 100/158 | loss=0.0572
+[12:53:48] INFO   Epoch 16 | batch 120/158 | loss=0.0941
+[12:53:50] INFO   Epoch 16 | batch 140/158 | loss=0.1540
+[12:53:55] INFO Epoch  16/50 | train loss=0.1303  mape=29.3%  mae=51.9g | val   loss=0.0757  mape=21.9%  mae=37.2g | lr=8.60e-05 | time=17.6s
+[12:53:58] INFO   Epoch 17 | batch 20/158 | loss=0.3348
+[12:54:01] INFO   Epoch 17 | batch 40/158 | loss=0.1426
+[12:54:03] INFO   Epoch 17 | batch 60/158 | loss=0.1950
+[12:54:05] INFO   Epoch 17 | batch 80/158 | loss=0.1102
+[12:54:07] INFO   Epoch 17 | batch 100/158 | loss=0.1521
+[12:54:09] INFO   Epoch 17 | batch 120/158 | loss=0.2110
+[12:54:11] INFO   Epoch 17 | batch 140/158 | loss=0.1611
+[12:54:16] INFO Epoch  17/50 | train loss=0.1377  mape=29.9%  mae=52.3g | val   loss=0.0726  mape=22.0%  mae=36.1g | lr=8.35e-05 | time=18.3s
+[12:54:19] INFO   Epoch 18 | batch 20/158 | loss=0.1476
+[12:54:21] INFO   Epoch 18 | batch 40/158 | loss=0.0694
+[12:54:23] INFO   Epoch 18 | batch 60/158 | loss=0.0453
+[12:54:25] INFO   Epoch 18 | batch 80/158 | loss=0.0687
+[12:54:27] INFO   Epoch 18 | batch 100/158 | loss=0.1766
+[12:54:29] INFO   Epoch 18 | batch 120/158 | loss=0.1196
+[12:54:32] INFO   Epoch 18 | batch 140/158 | loss=0.1084
+[12:54:36] INFO Epoch  18/50 | train loss=0.1332  mape=29.8%  mae=53.0g | val   loss=0.0703  mape=21.5%  mae=34.2g | lr=8.08e-05 | time=17.2s
+[12:54:37] INFO   ✓ New best val MAPE=21.5% - saved to checkpoints/best_model.pt
+[12:54:40] INFO   Epoch 19 | batch 20/158 | loss=0.0613
+[12:54:42] INFO   Epoch 19 | batch 40/158 | loss=0.0503
+[12:54:44] INFO   Epoch 19 | batch 60/158 | loss=0.0531
+[12:54:46] INFO   Epoch 19 | batch 80/158 | loss=0.0709
+[12:54:48] INFO   Epoch 19 | batch 100/158 | loss=0.0597
+[12:54:51] INFO   Epoch 19 | batch 120/158 | loss=0.1293
+[12:54:53] INFO   Epoch 19 | batch 140/158 | loss=0.0659
+[12:54:58] INFO Epoch  19/50 | train loss=0.1175  mape=27.0%  mae=49.2g | val   loss=0.0868  mape=25.7%  mae=37.9g | lr=7.80e-05 | time=17.8s
+[12:55:00] INFO   Epoch 20 | batch 20/158 | loss=0.2177
+[12:55:03] INFO   Epoch 20 | batch 40/158 | loss=0.0688
+[12:55:05] INFO   Epoch 20 | batch 60/158 | loss=0.1132
+[12:55:07] INFO   Epoch 20 | batch 80/158 | loss=0.1360
+[12:55:09] INFO   Epoch 20 | batch 100/158 | loss=0.0592
+[12:55:11] INFO   Epoch 20 | batch 120/158 | loss=0.0875
+[12:55:13] INFO   Epoch 20 | batch 140/158 | loss=0.0460
+[12:55:18] INFO Epoch  20/50 | train loss=0.1258  mape=28.4%  mae=50.1g | val   loss=0.0831  mape=24.6%  mae=35.8g | lr=7.50e-05 | time=17.3s
+[12:55:21] INFO   Epoch 21 | batch 20/158 | loss=0.0701
+[12:55:23] INFO   Epoch 21 | batch 40/158 | loss=0.1652
+[12:55:25] INFO   Epoch 21 | batch 60/158 | loss=0.0798
+[12:55:27] INFO   Epoch 21 | batch 80/158 | loss=0.0514
+[12:55:29] INFO   Epoch 21 | batch 100/158 | loss=0.1481
+[12:55:31] INFO   Epoch 21 | batch 120/158 | loss=0.0843
+[12:55:33] INFO   Epoch 21 | batch 140/158 | loss=0.0714
+[12:55:38] INFO Epoch  21/50 | train loss=0.1221  mape=27.6%  mae=48.8g | val   loss=0.0809  mape=24.2%  mae=36.7g | lr=7.19e-05 | time=16.6s
+[12:55:40] INFO   Epoch 22 | batch 20/158 | loss=0.1870
+[12:55:42] INFO   Epoch 22 | batch 40/158 | loss=0.1399
+[12:55:44] INFO   Epoch 22 | batch 60/158 | loss=0.0910
+[12:55:47] INFO   Epoch 22 | batch 80/158 | loss=0.0583
+[12:55:49] INFO   Epoch 22 | batch 100/158 | loss=0.2530
+[12:55:51] INFO   Epoch 22 | batch 120/158 | loss=0.1326
+[12:55:53] INFO   Epoch 22 | batch 140/158 | loss=0.0519
+[12:55:58] INFO Epoch  22/50 | train loss=0.1176  mape=27.6%  mae=48.5g | val   loss=0.0658  mape=20.2%  mae=34.8g | lr=6.87e-05 | time=16.9s
+[12:55:59] INFO   ✓ New best val MAPE=20.2% - saved to checkpoints/best_model.pt
+[12:56:01] INFO   Epoch 23 | batch 20/158 | loss=0.1590
+[12:56:03] INFO   Epoch 23 | batch 40/158 | loss=0.0537
+[12:56:05] INFO   Epoch 23 | batch 60/158 | loss=0.1185
+[12:56:07] INFO   Epoch 23 | batch 80/158 | loss=0.1373
+[12:56:09] INFO   Epoch 23 | batch 100/158 | loss=0.1565
+[12:56:11] INFO   Epoch 23 | batch 120/158 | loss=0.1030
+[12:56:13] INFO   Epoch 23 | batch 140/158 | loss=0.0797
+[12:56:19] INFO Epoch  23/50 | train loss=0.1152  mape=26.7%  mae=48.6g | val   loss=0.0677  mape=19.9%  mae=36.2g | lr=6.55e-05 | time=16.7s
+[12:56:20] INFO   ✓ New best val MAPE=19.9% - saved to checkpoints/best_model.pt
+[12:56:22] INFO   Epoch 24 | batch 20/158 | loss=0.1750
+[12:56:24] INFO   Epoch 24 | batch 40/158 | loss=0.0486
+[12:56:26] INFO   Epoch 24 | batch 60/158 | loss=0.1862
+[12:56:28] INFO   Epoch 24 | batch 80/158 | loss=0.1255
+[12:56:31] INFO   Epoch 24 | batch 100/158 | loss=0.0857
+[12:56:33] INFO   Epoch 24 | batch 120/158 | loss=0.0564
+[12:56:35] INFO   Epoch 24 | batch 140/158 | loss=0.1147
+[12:56:40] INFO Epoch  24/50 | train loss=0.1186  mape=27.5%  mae=48.6g | val   loss=0.0682  mape=20.6%  mae=36.6g | lr=6.21e-05 | time=17.6s
+[12:56:43] INFO   Epoch 25 | batch 20/158 | loss=0.1318
+[12:56:45] INFO   Epoch 25 | batch 40/158 | loss=0.0582
+[12:56:47] INFO   Epoch 25 | batch 60/158 | loss=0.0683
+[12:56:49] INFO   Epoch 25 | batch 80/158 | loss=0.0579
+[12:56:51] INFO   Epoch 25 | batch 100/158 | loss=0.0801
+[12:56:53] INFO   Epoch 25 | batch 120/158 | loss=0.1758
+[12:56:55] INFO   Epoch 25 | batch 140/158 | loss=0.0662
+[12:57:00] INFO Epoch  25/50 | train loss=0.1065  mape=26.2%  mae=46.7g | val   loss=0.0602  mape=19.1%  mae=32.2g | lr=5.87e-05 | time=17.0s
+[12:57:01] INFO   ✓ New best val MAPE=19.1% - saved to checkpoints/best_model.pt
+[12:57:04] INFO   Epoch 26 | batch 20/158 | loss=0.0705
+[12:57:06] INFO   Epoch 26 | batch 40/158 | loss=0.1134
+[12:57:08] INFO   Epoch 26 | batch 60/158 | loss=0.0897
+[12:57:11] INFO   Epoch 26 | batch 80/158 | loss=0.0856
+[12:57:13] INFO   Epoch 26 | batch 100/158 | loss=0.0913
+[12:57:15] INFO   Epoch 26 | batch 120/158 | loss=0.1455
+[12:57:17] INFO   Epoch 26 | batch 140/158 | loss=0.1181
+[12:57:22] INFO Epoch  26/50 | train loss=0.1088  mape=26.0%  mae=47.2g | val   loss=0.0596  mape=18.9%  mae=32.4g | lr=5.52e-05 | time=17.5s
+[12:57:23] INFO   ✓ New best val MAPE=18.9% - saved to checkpoints/best_model.pt
+[12:57:25] INFO   Epoch 27 | batch 20/158 | loss=0.0329
+[12:57:27] INFO   Epoch 27 | batch 40/158 | loss=0.1408
+[12:57:29] INFO   Epoch 27 | batch 60/158 | loss=0.1359
+[12:57:32] INFO   Epoch 27 | batch 80/158 | loss=0.2505
+[12:57:34] INFO   Epoch 27 | batch 100/158 | loss=0.0421
+[12:57:36] INFO   Epoch 27 | batch 120/158 | loss=0.1416
+[12:57:38] INFO   Epoch 27 | batch 140/158 | loss=0.0986
+[12:57:43] INFO Epoch  27/50 | train loss=0.1114  mape=26.4%  mae=46.7g | val   loss=0.0581  mape=18.7%  mae=32.7g | lr=5.17e-05 | time=17.4s
+[12:57:44] INFO   ✓ New best val MAPE=18.7% - saved to checkpoints/best_model.pt
+[12:57:47] INFO   Epoch 28 | batch 20/158 | loss=0.0800
+[12:57:49] INFO   Epoch 28 | batch 40/158 | loss=0.0261
+[12:57:51] INFO   Epoch 28 | batch 60/158 | loss=0.1260
+[12:57:53] INFO   Epoch 28 | batch 80/158 | loss=0.0578
+[12:57:55] INFO   Epoch 28 | batch 100/158 | loss=0.0595
+[12:57:58] INFO   Epoch 28 | batch 120/158 | loss=0.1709
+[12:58:00] INFO   Epoch 28 | batch 140/158 | loss=0.0884
+[12:58:05] INFO Epoch  28/50 | train loss=0.1096  mape=26.3%  mae=47.0g | val   loss=0.0640  mape=19.1%  mae=34.9g | lr=4.83e-05 | time=17.4s
+[12:58:07] INFO   Epoch 29 | batch 20/158 | loss=0.1260
+[12:58:09] INFO   Epoch 29 | batch 40/158 | loss=0.1539
+[12:58:11] INFO   Epoch 29 | batch 60/158 | loss=0.1658
+[12:58:13] INFO   Epoch 29 | batch 80/158 | loss=0.0778
+[12:58:15] INFO   Epoch 29 | batch 100/158 | loss=0.0690
+[12:58:17] INFO   Epoch 29 | batch 120/158 | loss=0.0950
+[12:58:19] INFO   Epoch 29 | batch 140/158 | loss=0.0800
+[12:58:24] INFO Epoch  29/50 | train loss=0.1026  mape=25.5%  mae=45.8g | val   loss=0.0578  mape=18.9%  mae=31.8g | lr=4.48e-05 | time=16.7s
+[12:58:27] INFO   Epoch 30 | batch 20/158 | loss=0.1252
+[12:58:29] INFO   Epoch 30 | batch 40/158 | loss=0.0606
+[12:58:31] INFO   Epoch 30 | batch 60/158 | loss=0.0872
+[12:58:33] INFO   Epoch 30 | batch 80/158 | loss=0.0588
+[12:58:35] INFO   Epoch 30 | batch 100/158 | loss=0.0734
+[12:58:37] INFO   Epoch 30 | batch 120/158 | loss=0.0627
+[12:58:39] INFO   Epoch 30 | batch 140/158 | loss=0.0696
+[12:58:43] INFO Epoch  30/50 | train loss=0.1109  mape=26.9%  mae=47.7g | val   loss=0.0578  mape=18.7%  mae=32.0g | lr=4.13e-05 | time=16.4s
+[12:58:44] INFO   ✓ New best val MAPE=18.7% - saved to checkpoints/best_model.pt
+[12:58:47] INFO   Epoch 31 | batch 20/158 | loss=0.0378
+[12:58:49] INFO   Epoch 31 | batch 40/158 | loss=0.0938
+[12:58:51] INFO   Epoch 31 | batch 60/158 | loss=0.0532
+[12:58:53] INFO   Epoch 31 | batch 80/158 | loss=0.0491
+[12:58:55] INFO   Epoch 31 | batch 100/158 | loss=0.0840
+[12:58:57] INFO   Epoch 31 | batch 120/158 | loss=0.1034
+[12:58:59] INFO   Epoch 31 | batch 140/158 | loss=0.1924
+[12:59:04] INFO Epoch  31/50 | train loss=0.0991  mape=24.7%  mae=44.4g | val   loss=0.0573  mape=18.5%  mae=33.7g | lr=3.79e-05 | time=16.8s
+[12:59:05] INFO   ✓ New best val MAPE=18.5% - saved to checkpoints/best_model.pt
+[12:59:07] INFO   Epoch 32 | batch 20/158 | loss=0.1056
+[12:59:10] INFO   Epoch 32 | batch 40/158 | loss=0.1816
+[12:59:12] INFO   Epoch 32 | batch 60/158 | loss=0.0789
+[12:59:14] INFO   Epoch 32 | batch 80/158 | loss=0.0701
+[12:59:16] INFO   Epoch 32 | batch 100/158 | loss=0.0972
+[12:59:18] INFO   Epoch 32 | batch 120/158 | loss=0.0544
+[12:59:20] INFO   Epoch 32 | batch 140/158 | loss=0.0276
+[12:59:25] INFO Epoch  32/50 | train loss=0.1007  mape=25.0%  mae=45.1g | val   loss=0.0564  mape=18.4%  mae=31.6g | lr=3.45e-05 | time=16.6s
+[12:59:26] INFO   ✓ New best val MAPE=18.4% - saved to checkpoints/best_model.pt
+[12:59:28] INFO   Epoch 33 | batch 20/158 | loss=0.0821
+[12:59:30] INFO   Epoch 33 | batch 40/158 | loss=0.0747
+[12:59:32] INFO   Epoch 33 | batch 60/158 | loss=0.1086
+[12:59:34] INFO   Epoch 33 | batch 80/158 | loss=0.0669
+[12:59:36] INFO   Epoch 33 | batch 100/158 | loss=0.0928
+[12:59:38] INFO   Epoch 33 | batch 120/158 | loss=0.0724
+[12:59:41] INFO   Epoch 33 | batch 140/158 | loss=0.0630
+[12:59:46] INFO Epoch  33/50 | train loss=0.0942  mape=24.1%  mae=44.5g | val   loss=0.0575  mape=18.5%  mae=32.4g | lr=3.13e-05 | time=16.9s
+[12:59:49] INFO   Epoch 34 | batch 20/158 | loss=0.1298
+[12:59:51] INFO   Epoch 34 | batch 40/158 | loss=0.0823
+[12:59:53] INFO   Epoch 34 | batch 60/158 | loss=0.0834
+[12:59:56] INFO   Epoch 34 | batch 80/158 | loss=0.1401
+[12:59:58] INFO   Epoch 34 | batch 100/158 | loss=0.0302
+[13:00:00] INFO   Epoch 34 | batch 120/158 | loss=0.1359
+[13:00:01] INFO   Epoch 34 | batch 140/158 | loss=0.0341
+[13:00:06] INFO Epoch  34/50 | train loss=0.1015  mape=25.6%  mae=46.6g | val   loss=0.0584  mape=18.3%  mae=32.9g | lr=2.81e-05 | time=17.2s
+[13:00:07] INFO   ✓ New best val MAPE=18.3% - saved to checkpoints/best_model.pt
+[13:00:10] INFO   Epoch 35 | batch 20/158 | loss=0.0586
+[13:00:12] INFO   Epoch 35 | batch 40/158 | loss=0.1634
+[13:00:14] INFO   Epoch 35 | batch 60/158 | loss=0.0707
+[13:00:16] INFO   Epoch 35 | batch 80/158 | loss=0.0728
+[13:00:17] INFO   Epoch 35 | batch 100/158 | loss=0.0958
+[13:00:19] INFO   Epoch 35 | batch 120/158 | loss=0.0500
+[13:00:21] INFO   Epoch 35 | batch 140/158 | loss=0.1244
+[13:00:26] INFO Epoch  35/50 | train loss=0.0925  mape=24.0%  mae=44.0g | val   loss=0.0550  mape=18.2%  mae=31.4g | lr=2.50e-05 | time=16.0s
+[13:00:27] INFO   ✓ New best val MAPE=18.2% - saved to checkpoints/best_model.pt
+[13:00:30] INFO   Epoch 36 | batch 20/158 | loss=0.1168
+[13:00:31] INFO   Epoch 36 | batch 40/158 | loss=0.1390
+[13:00:34] INFO   Epoch 36 | batch 60/158 | loss=0.1110
+[13:00:36] INFO   Epoch 36 | batch 80/158 | loss=0.0955
+[13:00:37] INFO   Epoch 36 | batch 100/158 | loss=0.2046
+[13:00:39] INFO   Epoch 36 | batch 120/158 | loss=0.1495
+[13:00:41] INFO   Epoch 36 | batch 140/158 | loss=0.0622
+[13:00:46] INFO Epoch  36/50 | train loss=0.1028  mape=25.4%  mae=44.7g | val   loss=0.0556  mape=18.0%  mae=31.4g | lr=2.20e-05 | time=16.2s
+[13:00:47] INFO   ✓ New best val MAPE=18.0% - saved to checkpoints/best_model.pt
+[13:00:50] INFO   Epoch 37 | batch 20/158 | loss=0.1160
+[13:00:52] INFO   Epoch 37 | batch 40/158 | loss=0.4076
+[13:00:54] INFO   Epoch 37 | batch 60/158 | loss=0.1390
+[13:00:56] INFO   Epoch 37 | batch 80/158 | loss=0.0879
+[13:00:58] INFO   Epoch 37 | batch 100/158 | loss=0.1071
+[13:01:00] INFO   Epoch 37 | batch 120/158 | loss=0.0545
+[13:01:02] INFO   Epoch 37 | batch 140/158 | loss=0.0281
+[13:01:07] INFO Epoch  37/50 | train loss=0.1017  mape=25.2%  mae=45.6g | val   loss=0.0553  mape=18.2%  mae=31.7g | lr=1.92e-05 | time=16.5s
+[13:01:09] INFO   Epoch 38 | batch 20/158 | loss=0.1863
+[13:01:11] INFO   Epoch 38 | batch 40/158 | loss=0.0204
+[13:01:13] INFO   Epoch 38 | batch 60/158 | loss=0.0766
+[13:01:15] INFO   Epoch 38 | batch 80/158 | loss=0.1312
+[13:01:17] INFO   Epoch 38 | batch 100/158 | loss=0.0547
+[13:01:19] INFO   Epoch 38 | batch 120/158 | loss=0.1659
+[13:01:21] INFO   Epoch 38 | batch 140/158 | loss=0.0791
+[13:01:26] INFO Epoch  38/50 | train loss=0.0944  mape=24.1%  mae=44.4g | val   loss=0.0545  mape=18.0%  mae=31.2g | lr=1.65e-05 | time=16.5s
+[13:01:28] INFO   Epoch 39 | batch 20/158 | loss=0.0959
+[13:01:30] INFO   Epoch 39 | batch 40/158 | loss=0.0279
+[13:01:32] INFO   Epoch 39 | batch 60/158 | loss=0.1752
+[13:01:34] INFO   Epoch 39 | batch 80/158 | loss=0.1076
+[13:01:37] INFO   Epoch 39 | batch 100/158 | loss=0.0966
+[13:01:38] INFO   Epoch 39 | batch 120/158 | loss=0.0614
+[13:01:40] INFO   Epoch 39 | batch 140/158 | loss=0.1405
+[13:01:45] INFO Epoch  39/50 | train loss=0.0956  mape=24.2%  mae=44.1g | val   loss=0.0544  mape=18.0%  mae=31.3g | lr=1.40e-05 | time=16.2s
+[13:01:46] INFO   ✓ New best val MAPE=18.0% - saved to checkpoints/best_model.pt
+[13:01:49] INFO   Epoch 40 | batch 20/158 | loss=0.0678
+[13:01:50] INFO   Epoch 40 | batch 40/158 | loss=0.2400
+[13:01:52] INFO   Epoch 40 | batch 60/158 | loss=0.0828
+[13:01:54] INFO   Epoch 40 | batch 80/158 | loss=0.1029
+[13:01:56] INFO   Epoch 40 | batch 100/158 | loss=0.1115
+[13:01:58] INFO   Epoch 40 | batch 120/158 | loss=0.0750
+[13:02:00] INFO   Epoch 40 | batch 140/158 | loss=0.0469
+[13:02:05] INFO Epoch  40/50 | train loss=0.0953  mape=24.5%  mae=44.3g | val   loss=0.0550  mape=18.0%  mae=31.6g | lr=1.17e-05 | time=15.9s
+[13:02:06] INFO   ✓ New best val MAPE=18.0% - saved to checkpoints/best_model.pt
+[13:02:08] INFO   Epoch 41 | batch 20/158 | loss=0.0569
+[13:02:10] INFO   Epoch 41 | batch 40/158 | loss=0.0689
+[13:02:12] INFO   Epoch 41 | batch 60/158 | loss=0.0625
+[13:02:14] INFO   Epoch 41 | batch 80/158 | loss=0.1025
+[13:02:16] INFO   Epoch 41 | batch 100/158 | loss=0.0625
+[13:02:18] INFO   Epoch 41 | batch 120/158 | loss=0.0902
+[13:02:20] INFO   Epoch 41 | batch 140/158 | loss=0.0922
+[13:02:25] INFO Epoch  41/50 | train loss=0.0944  mape=24.0%  mae=43.1g | val   loss=0.0548  mape=18.1%  mae=31.6g | lr=9.55e-06 | time=15.9s
+[13:02:27] INFO   Epoch 42 | batch 20/158 | loss=0.1242
+[13:02:29] INFO   Epoch 42 | batch 40/158 | loss=0.0928
+[13:02:31] INFO   Epoch 42 | batch 60/158 | loss=0.1124
+[13:02:33] INFO   Epoch 42 | batch 80/158 | loss=0.0746
+[13:02:35] INFO   Epoch 42 | batch 100/158 | loss=0.0756
+[13:02:37] INFO   Epoch 42 | batch 120/158 | loss=0.1171
+[13:02:39] INFO   Epoch 42 | batch 140/158 | loss=0.0833
+[13:02:43] INFO Epoch  42/50 | train loss=0.0942  mape=23.9%  mae=43.4g | val   loss=0.0544  mape=18.0%  mae=31.5g | lr=7.60e-06 | time=15.6s
+[13:02:46] INFO   Epoch 43 | batch 20/158 | loss=0.0590
+[13:02:47] INFO   Epoch 43 | batch 40/158 | loss=0.0391
+[13:02:49] INFO   Epoch 43 | batch 60/158 | loss=0.1847
+[13:02:51] INFO   Epoch 43 | batch 80/158 | loss=0.1530
+[13:02:54] INFO   Epoch 43 | batch 100/158 | loss=0.0505
+[13:02:55] INFO   Epoch 43 | batch 120/158 | loss=0.0644
+[13:02:57] INFO   Epoch 43 | batch 140/158 | loss=0.0665
+[13:03:02] INFO Epoch  43/50 | train loss=0.0988  mape=24.7%  mae=44.3g | val   loss=0.0549  mape=18.0%  mae=31.8g | lr=5.85e-06 | time=15.6s
+[13:03:04] INFO   Epoch 44 | batch 20/158 | loss=0.1859
+[13:03:06] INFO   Epoch 44 | batch 40/158 | loss=0.3215
+[13:03:08] INFO   Epoch 44 | batch 60/158 | loss=0.1181
+[13:03:10] INFO   Epoch 44 | batch 80/158 | loss=0.0570
+[13:03:12] INFO   Epoch 44 | batch 100/158 | loss=0.0460
+[13:03:14] INFO   Epoch 44 | batch 120/158 | loss=0.0957
+[13:03:16] INFO   Epoch 44 | batch 140/158 | loss=0.0338
+[13:03:20] INFO Epoch  44/50 | train loss=0.0958  mape=24.4%  mae=43.7g | val   loss=0.0552  mape=17.9%  mae=32.2g | lr=4.32e-06 | time=15.6s
+[13:03:21] INFO   ✓ New best val MAPE=17.9% - saved to checkpoints/best_model.pt
+[13:03:24] INFO   Epoch 45 | batch 20/158 | loss=0.0776
+[13:03:26] INFO   Epoch 45 | batch 40/158 | loss=0.0882
+[13:03:27] INFO   Epoch 45 | batch 60/158 | loss=0.1487
+[13:03:29] INFO   Epoch 45 | batch 80/158 | loss=0.0594
+[13:03:31] INFO   Epoch 45 | batch 100/158 | loss=0.1483
+[13:03:33] INFO   Epoch 45 | batch 120/158 | loss=0.0630
+[13:03:35] INFO   Epoch 45 | batch 140/158 | loss=0.0554
+[13:03:40] INFO Epoch  45/50 | train loss=0.0959  mape=24.4%  mae=43.9g | val   loss=0.0545  mape=17.8%  mae=31.7g | lr=3.02e-06 | time=15.6s
+[13:03:41] INFO   ✓ New best val MAPE=17.8% - saved to checkpoints/best_model.pt
+[13:03:43] INFO   Epoch 46 | batch 20/158 | loss=0.0986
+[13:03:45] INFO   Epoch 46 | batch 40/158 | loss=0.0566
+[13:03:47] INFO   Epoch 46 | batch 60/158 | loss=0.0882
+[13:03:49] INFO   Epoch 46 | batch 80/158 | loss=0.0639
+[13:03:51] INFO   Epoch 46 | batch 100/158 | loss=0.1313
+[13:03:53] INFO   Epoch 46 | batch 120/158 | loss=0.1054
+[13:03:55] INFO   Epoch 46 | batch 140/158 | loss=0.0700
+[13:04:01] INFO Epoch  46/50 | train loss=0.0972  mape=24.7%  mae=44.3g | val   loss=0.0543  mape=17.8%  mae=31.5g | lr=1.94e-06 | time=16.6s
+[13:04:03] INFO   Epoch 47 | batch 20/158 | loss=0.0644
+[13:04:05] INFO   Epoch 47 | batch 40/158 | loss=0.0606
+[13:04:07] INFO   Epoch 47 | batch 60/158 | loss=0.0452
+[13:04:09] INFO   Epoch 47 | batch 80/158 | loss=0.0983
+[13:04:12] INFO   Epoch 47 | batch 100/158 | loss=0.0687
+[13:04:13] INFO   Epoch 47 | batch 120/158 | loss=0.0373
+[13:04:15] INFO   Epoch 47 | batch 140/158 | loss=0.0841
+[13:04:20] INFO Epoch  47/50 | train loss=0.0886  mape=23.3%  mae=42.6g | val   loss=0.0541  mape=17.9%  mae=31.2g | lr=1.09e-06 | time=16.2s
+[13:04:22] INFO   Epoch 48 | batch 20/158 | loss=0.1592
+[13:04:24] INFO   Epoch 48 | batch 40/158 | loss=0.0848
+[13:04:26] INFO   Epoch 48 | batch 60/158 | loss=0.0612
+[13:04:28] INFO   Epoch 48 | batch 80/158 | loss=0.0733
+[13:04:30] INFO   Epoch 48 | batch 100/158 | loss=0.1356
+[13:04:33] INFO   Epoch 48 | batch 120/158 | loss=0.0700
+[13:04:35] INFO   Epoch 48 | batch 140/158 | loss=0.0746
+[13:04:39] INFO Epoch  48/50 | train loss=0.0932  mape=24.1%  mae=43.1g | val   loss=0.0542  mape=17.9%  mae=31.3g | lr=4.87e-07 | time=16.5s
+[13:04:41] INFO   Epoch 49 | batch 20/158 | loss=0.0787
+[13:04:43] INFO   Epoch 49 | batch 40/158 | loss=0.0628
+[13:04:45] INFO   Epoch 49 | batch 60/158 | loss=0.1133
+[13:04:47] INFO   Epoch 49 | batch 80/158 | loss=0.0591
+[13:04:49] INFO   Epoch 49 | batch 100/158 | loss=0.0927
+[13:04:51] INFO   Epoch 49 | batch 120/158 | loss=0.0813
+[13:04:53] INFO   Epoch 49 | batch 140/158 | loss=0.0148
+[13:04:58] INFO Epoch  49/50 | train loss=0.1004  mape=25.0%  mae=43.3g | val   loss=0.0542  mape=17.8%  mae=31.4g | lr=1.22e-07 | time=15.4s
+[13:05:00] INFO   Epoch 50 | batch 20/158 | loss=0.1179
+[13:05:02] INFO   Epoch 50 | batch 40/158 | loss=0.0469
+[13:05:04] INFO   Epoch 50 | batch 60/158 | loss=0.1195
+[13:05:06] INFO   Epoch 50 | batch 80/158 | loss=0.0581
+[13:05:07] INFO   Epoch 50 | batch 100/158 | loss=0.0449
+[13:05:09] INFO   Epoch 50 | batch 120/158 | loss=0.1142
+[13:05:11] INFO   Epoch 50 | batch 140/158 | loss=0.0409
+[13:05:16] INFO Epoch  50/50 | train loss=0.0903  mape=23.6%  mae=42.8g | val   loss=0.0542  mape=17.8%  mae=31.4g | lr=0.00e+00 | time=15.3s
+[13:05:16] INFO --- Test set evaluation ---
+[13:05:19] INFO Test | mape=17.1%  mae=36.5g  loss=0.0513
+[13:05:19] INFO Best checkpoint: checkpoints/best_model.pt
