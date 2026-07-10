@@ -122,13 +122,15 @@ class Nutrition5KDataset(Dataset):
             spatial_aug_overhead: A.Compose | None = None,
             spatial_aug_side: A.Compose | None = None,
             photometric_aug: A.Compose | None = None,
-            augment_tilt: bool = True
+            augment_tilt: bool = True,
+            volume_lookup: dict[str, float] | None = None,
     ):
         self.root = Path(data_root)
         self.transform = transform
         self.mode = mode
         self.augment_tilt = augment_tilt and mode == "train"
         self.target_lookup = target_lookup
+        self.volume_lookup = volume_lookup or {}  # dish-level geometric scalar, only used with --use_volume
         self.spatial_aug_overhead = spatial_aug_overhead
         self.spatial_aug_side = spatial_aug_side
         self.photometric_aug = photometric_aug
@@ -227,15 +229,54 @@ class Nutrition5KDataset(Dataset):
         return {
             "rgb": rgb_tensor,
             "target": torch.tensor(target, dtype=torch.float32),
+            "volume_cm3": torch.tensor(self.volume_lookup.get(dish_id, 1.0), dtype=torch.float32), # dish-level scalar, view-independent. 1.0 sentinel when no cache -> log() = 0, and it's only ever read under --use_volume anyway
             "dish_id": dish_id,
             "view_type": view_type
         }
+
+
+class VolumeAssistedRegressor(nn.Module):
+    """
+    Nutrition5k's volume-assisted head (Thames et al., CVPR 2021): ConvNeXt features from the RGB image are concatenated with
+    a single geometry-derived volume scalar (log cm^3) before the final FC. The scalar injects the metric scale the RGB image
+    can't carry on its own, which is the exact trick that took the paper's mass error from 18.7% to 13.7%
+
+    Mirrors torchvision's ConvNeXt layout (features -> avgpool -> LayerNorm2d -> flatten) so the ImageNet pretraining,
+    the freeze/unfreeze phasing and the log-space read-out all still hold
+    """
+    def __init__(self, freeze_backbone: bool = False, log_target: bool = True):
+        super().__init__()
+        backbone = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
+        self.features = backbone.features
+        self.avgpool = backbone.avgpool
+        self.norm = backbone.classifier[0] # LayerNorm2d(768), runs after avgpool
+        self.log_target = log_target
+
+        if freeze_backbone:
+            for param in self.features.parameters():
+                param.requires_grad = False
+
+        head_layers = [
+            nn.Linear(768 + 1, 256),  # +1 for the volume scalar
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1)
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        self.head = nn.Sequential(*head_layers)
+
+    def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
+        feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)  # (B, 768)
+        v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)                  # (B, 1), log cm^3
+        return self.head(torch.cat([feats, v], dim=1)).squeeze(1)      # (B,)
 
 
 def build_model(
         freeze_backbone: bool = False,
         log_target: bool = True,
         head_bias_init: float | None = None,
+        use_volume: bool = False,
 ) -> nn.Module:
     """
     Load pretrained ConvNeXt-Tiny and replace classification head with regression head.
@@ -248,37 +289,59 @@ def build_model(
     head_bias_init warm-starts the final bias to the mean target (mean log-target
     in log mode). Zeroing the final weight makes the initial prediction exactly
     that mean, which removes the ~12,000 opening loss and the slow first epochs.
+
+    use_volume swaps in VolumeAssistedRegressor, which concatenates a geometry-derived volume
+    scalar into the head (Nutrition5k's volume-assisted trick: 18.7% -> 13.7% mass).
     """
-    model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
+    if use_volume:
+        model = VolumeAssistedRegressor(freeze_backbone=freeze_backbone, log_target=log_target)
+        final_linear = model.head[3]
+    else:
+        model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
 
-    if freeze_backbone:
-        for param in model.parameters():
-            param.requires_grad = False
+        if freeze_backbone:
+            for param in model.parameters():
+                param.requires_grad = False
 
-    head_layers = [
-        nn.Linear(768, 256),
-        nn.GELU(),
-        nn.Dropout(0.3),
-        nn.Linear(256, 1),
-    ]
-    if not log_target:
-        head_layers.append(nn.Softplus())
-    model.classifier[2] = nn.Sequential(*head_layers)
+        head_layers = [
+            nn.Linear(768, 256),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1),
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        model.classifier[2] = nn.Sequential(*head_layers)
+        final_linear = model.classifier[2][3]
+
+        for param in model.classifier.parameters():
+            param.requires_grad = True
 
     # Final Linear is index 3 in both cases (Softplus, when present, sits after it)
-    final_linear = model.classifier[2][3]
     if head_bias_init is not None:
         nn.init.zeros_(final_linear.weight)
         final_linear.bias.data.fill_(float(head_bias_init))
 
-    for param in model.classifier.parameters():
-        param.requires_grad = True
-
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"Model: ConvNeXt-Tiny | total={total_params:,} | trainable={trainable_params:,}")
+    logger.info(
+        f"Model: {'VolumeAssisted ' if use_volume else ''}ConvNeXt-Tiny | "
+        f"total={total_params:,} | trainable={trainable_params:,}"
+    )
 
     return model
+
+
+def split_backbone_head_params(model: nn.Module) -> tuple[list, list]:
+    """
+    (backbone, head) param split that works for both the plain ConvNeXt and the VolumeAssistedRegressor. Backbone = the
+    pretrained feature extractor (gets the 10x lower LR) while head = everything else (norm/pool/regression head). Both expose .features, so key off that
+    instead of .classifier which the wrapper doesn't have
+    """
+    backbone = list(model.features.parameters())
+    backbone_ids = {id(p) for p in backbone}
+    head = [p for p in model.parameters() if id(p) not in backbone_ids]
+    return backbone, head
 
 
 def get_transforms(img_size: int = 224):
@@ -369,6 +432,7 @@ def train_one_epoch(
         device: torch.device,
         epoch: int,
         log_target: bool,
+        use_volume: bool,
         scheduler=None
 ) -> dict:
     """Train for one epoch. Accumulate predictions and targets for epoch-level metrics."""
@@ -382,8 +446,9 @@ def train_one_epoch(
     for batch_idx, batch in enumerate(loader):
         rgb = batch["rgb"].to(device)
         target = batch["target"].to(device)
+        volume = batch["volume_cm3"].to(device) if use_volume else None
 
-        out = model(rgb).squeeze(1)
+        out = model(rgb, volume) if use_volume else model(rgb).squeeze(1)
         target_model = torch.log(target) if log_target else target # match the space the loss is computed in
         loss = loss_fn(out, target_model)
 
@@ -423,6 +488,7 @@ def validate(
         loss_fn: nn.Module,
         device: torch.device,
         log_target: bool,
+        use_volume: bool = False,
         tta: bool = False,
 ) -> dict:
     """
@@ -437,15 +503,17 @@ def validate(
     for batch in loader:
         rgb = batch["rgb"].to(device)
         target = batch["target"].to(device)
+        volume = batch["volume_cm3"].to(device) if use_volume else None
 
-        out = model(rgb).squeeze(1)
+        out = model(rgb, volume) if use_volume else model(rgb).squeeze(1)
         target_model = torch.log(target) if log_target else target
         total_loss += loss_fn(out, target_model).item()
 
         pred_real = _to_real(out, log_target)
         if tta:
             # horizontal-flip TTA: average the prediction over the image and its mirror
-            out_flip = model(torch.flip(rgb, dims=[3])).squeeze(1)
+            rgb_flip = torch.flip(rgb, dims=[3])
+            out_flip = model(rgb_flip, volume) if use_volume else model(rgb_flip).squeeze(1)
             pred_real = 0.5 * (pred_real + _to_real(out_flip, log_target))
 
         all_preds.append(pred_real.cpu())
@@ -491,6 +559,18 @@ def build_target_lookup(args, dish_ids, mass_g) -> tuple[dict[str, float], str]:
     return lookup, unit
 
 
+def load_volume_cache(path: str) -> dict[str, float]:
+    """dish_id -> geometric volume scalar (cm^3), from cache_volume_scalars.py output"""
+    df = pd.read_csv(path)
+    lookup = {
+        str(r.dish_id): float(r.volume_cm3)
+        for r in df.itertuples(index=False)
+        if pd.notna(r.volume_cm3) and float(r.volume_cm3) > 0
+    }
+    logger.info(f"Volume cache: {len(lookup)} dishes with a usable scalar from {path}")
+    return lookup
+
+
 def main(args):
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -525,6 +605,19 @@ def main(args):
     spatial_overhead_aug, spatial_side_aug, photometric_aug = build_train_augmentation(img_size=args.img_size)
 
     valid_dish_ids = [d for d in dish_ids if d in target_lookup]
+
+    # --use_volume: restrict to dishes that also have a cached geometric scalar. This shrinks the set to the overhead/depth subset,
+    # matching how the paper's depth experiments were run
+    volume_lookup = None
+    if args.use_volume:
+        volume_lookup = load_volume_cache(args.volume_cache)
+        before = len(valid_dish_ids)
+        valid_dish_ids = [d for d in valid_dish_ids if d in volume_lookup]
+        logger.info(
+            f"--use_volume: {len(valid_dish_ids)}/{before} dishes have both a mass target "
+            f"and a cached volume scalar"
+        )
+
     rng = random.Random(42)
     rng.shuffle(valid_dish_ids)
 
@@ -553,21 +646,24 @@ def main(args):
         spatial_aug_overhead=spatial_overhead_aug,
         spatial_aug_side=spatial_side_aug,
         photometric_aug=photometric_aug,
-        augment_tilt=True
+        augment_tilt=True,
+        volume_lookup=volume_lookup,
     )
     val_set = Nutrition5KDataset(
         data_root=args.data_root,
         dish_ids=val_ids,
         target_lookup=target_lookup,
         transform=val_transform,
-        mode="val"
+        mode="val",
+        volume_lookup=volume_lookup,
     )
     test_set = Nutrition5KDataset(
         data_root=args.data_root,
         dish_ids=test_ids,
         target_lookup=target_lookup,
         transform=val_transform,
-        mode="test"
+        mode="test",
+        volume_lookup=volume_lookup,
     )
 
 
@@ -593,12 +689,13 @@ def main(args):
         freeze_backbone=True,
         log_target=args.log_target,
         head_bias_init=head_bias_init,
+        use_volume=args.use_volume,
     ).to(device)
 
     # log-space MSE optimises relative error and is robust to the skewed target.
     loss_fn = nn.MSELoss() if args.log_target else nn.HuberLoss(delta=50.0)
 
-    head_params = list(model.classifier.parameters())
+    _, head_params = split_backbone_head_params(model)
     optimiser = torch.optim.AdamW(head_params, lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs * len(train_loader))
 
@@ -613,9 +710,10 @@ def main(args):
             for param in model.parameters():
                 param.requires_grad = True
 
+            backbone_params, head_params = split_backbone_head_params(model)
             optimiser = torch.optim.AdamW([
-                {"params": model.features.parameters(), "lr": args.lr * 0.1},
-                {"params": model.classifier.parameters(), "lr": args.lr},
+                {"params": backbone_params, "lr": args.lr * 0.1},
+                {"params": head_params, "lr": args.lr},
             ], weight_decay=1e-4)
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimiser,
@@ -623,9 +721,9 @@ def main(args):
             )
 
         train_metrics = train_one_epoch(
-            model, train_loader, loss_fn, optimiser, device, epoch, args.log_target, scheduler,
+            model, train_loader, loss_fn, optimiser, device, epoch, args.log_target, args.use_volume, scheduler,
         )
-        val_metrics = validate(model, val_loader, loss_fn, device, args.log_target, tta=args.tta)
+        val_metrics = validate(model, val_loader, loss_fn, device, args.log_target, use_volume=args.use_volume, tta=args.tta)
 
         logger.info(
             f"Epoch {epoch:3d}/{args.epochs} | "
@@ -657,7 +755,7 @@ def main(args):
     )
     checkpoint = torch.load(best_ckpt, map_location=device)
     model.load_state_dict(checkpoint["state_dict"])
-    test_metrics = validate(model, test_loader, loss_fn, device, args.log_target, tta=args.tta)
+    test_metrics = validate(model, test_loader, loss_fn, device, args.log_target, use_volume=args.use_volume, tta=args.tta)
     logger.info(f"Test | mape={test_metrics['mape']:.1f}%  mae={test_metrics['mae']:.1f}{unit}  loss={test_metrics['loss']:.4f}")
     logger.info(f"Best checkpoint: {best_ckpt}")
 
@@ -682,6 +780,8 @@ if __name__ == "__main__":
                         help="Regress in log space (recommended for the skewed target).")
     parser.add_argument("--tta", action=argparse.BooleanOptionalAction, default=True,
                         help="Horizontal-flip test-time augmentation at val/test.")
+    parser.add_argument("--use_volume", action=argparse.BooleanOptionalAction, default=False) # Volume-assisted regression: concat a cached geometric volume scalar into the head (Nutrition5k, Thames et al. 2021)
+    parser.add_argument("--volume_cache", type=str, default="./data/volume_scalars.csv") # needed if we do --use_volume
 
     args = parser.parse_args()
     main(args)

@@ -63,6 +63,7 @@ class VolumeResult:
     plate_depth_m: float
     max_food_height_cm: float
     mean_food_height_cm: float
+    clipped_high_pct: float = 0.0
 
 
 logging.basicConfig(
@@ -100,27 +101,60 @@ def _load_sam3_model():
 register_loader("depthpro", _load_depth_model)
 register_loader("sam3", _load_sam3_model)
 
+class VolumeAssistedRegressor(nn.Module):
+    """
+    Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
+    Got to stay structurally identical to train.py or the state_dict won't load
+    """
+    def __init__(self, log_target: bool = True):
+        super().__init__()
+        backbone = models.convnext_tiny(weights=None)
+        self.features = backbone.features
+        self.avgpool = backbone.avgpool
+        self.norm = backbone.classifier[0]           # LayerNorm2d(768)
+        self.log_target = log_target
+        head_layers = [
+            nn.Linear(768 + 1, 256),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1),
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        self.head = nn.Sequential(*head_layers)
+
+    def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
+        feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)
+        v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)
+        return self.head(torch.cat([feats, v], dim=1)).squeeze(1)
+
 def load_model(model_path: str) -> nn.Module:
     """
-    Loads a custom trained model using torchvisions convnext_tiny.
-    Matches setup of the training.
+    Rebuild the trained model to match its checkpoint. Reads the saved args so it picks the right architecture: the plain ConvNeXt head,
+    or the volume-assisted head (norm + head, with a 769-wide first Linear because the geometric volume scalar is concatenated in)
     """
     checkpoint = torch.load(model_path, map_location="cpu")
-    log_target = bool(checkpoint.get("args", {}).get("log_target", False))
+    saved_args = checkpoint.get("args", {})
+    log_target = bool(saved_args.get("log_target", False))
+    use_volume = bool(saved_args.get("use_volume", False))
 
-    head_layers = [
-        nn.Linear(768, 256),
-        nn.GELU(),
-        nn.Dropout(0.3),
-        nn.Linear(256, 1),
-    ]
-    if not log_target:
-        head_layers.append(nn.Softplus())
+    if use_volume:
+        model = VolumeAssistedRegressor(log_target=log_target)
+    else:
+        head_layers = [
+            nn.Linear(768, 256),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1)
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        model = models.convnext_tiny(weights=None)
+        model.classifier[2] = nn.Sequential(*head_layers)
 
-    model = models.convnext_tiny(weights=None)
-    model.classifier[2] = nn.Sequential(*head_layers)
     model.load_state_dict(checkpoint["state_dict"])
-    model._log_target = log_target  # stash for read-out
+    model._log_target = log_target
+    model._use_volume = use_volume  # stash so the endpoint knows whether to feed the scalar
     return model.eval()
 
 register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
@@ -175,6 +209,88 @@ def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int
         image_height=actual_height,
         source=source,
     )
+
+
+def fit_support_plane(
+        depth_map: np.ndarray,
+        food_mask: np.ndarray,
+        image_info: CameraInfo,
+        inlier_thresh_m: float = 0.006,
+        ransac_iters: int = 250,
+        max_points: int = 8000,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """
+    Fits the supporting surface as a 3D plane, referenced to a local ring of background around the
+    food rather than the whole scene.
+
+    Sampling every non-food pixel lets RANSAC lock onto the far table/floor receding away in a casual photo -> deep, tilted, only ~half the points as inliers,
+    and every food pixel floats several cm above it. A ring hugging the food references height to the surface the food actually sits on.
+
+    Ring = (food dilated by ring_px) minus food, intersected with valid background. Falls back to full background if the ring comes out too thin (food fills the frame / runs off edges)
+    :return: (unit normal pointing back toward the camera, a point on the plane, inlier_ratio)
+    """
+    fx, fy, cx, cy = image_info.fx, image_info.fy, image_info.cx, image_info.cy
+
+    valid = (depth_map > 0.1) & (depth_map < 5.0)
+    food = food_mask > 0
+
+    # Ring width scales with the food's own size (a band ~10% of its extent), clamped for cost
+    ring_px = int(np.clip(0.10 * np.sqrt(max(int(food.sum()), 1)), 25, 150))
+    ring = cv2.dilate(food.astype(np.uint8), np.ones((ring_px, ring_px), np.uint8)).astype(bool)
+    ring = ring & ~food & valid
+
+    ys, xs = np.where(ring)
+    if len(xs) < 200:
+        ys, xs = np.where((~food) & valid)
+        logger.warning(f"  Plane | ring too thin ({len(xs)} px), falling back to full background")
+    else:
+        logger.info(f"  Plane | using local ring of {len(xs)} px (ring_px={ring_px})")
+
+    if len(xs) < 100:
+        z = float(np.median(depth_map[~food])) if np.any(~food) else float(np.median(depth_map))
+        logger.warning(f"  Plane | <100 usable bg px, falling back to flat plane at {z:.3f}m")
+        return np.array([0.0, 0.0, -1.0]), np.array([0.0, 0.0, z]), 0.0
+
+    # Back-project the ring pixels to 3D (metres)
+    z = depth_map[ys, xs].astype(np.float64)
+    x = (xs - cx) * z / fx
+    y = (ys - cy) * z / fy
+    pts = np.stack([x, y, z], axis=1)
+
+    if len(pts) > max_points:
+        pts = pts[np.random.default_rng(0).choice(len(pts), max_points, replace=False)]
+
+    rng = np.random.default_rng(0)
+    best_inliers, best_n = None, None
+    for _ in range(ransac_iters):
+        s = pts[rng.choice(len(pts), 3, replace=False)]
+        n = np.cross(s[1] - s[0], s[2] - s[0])
+        norm = np.linalg.norm(n)
+        if norm < 1e-9:
+            continue
+        n = n / norm
+        dist = np.abs((pts - s[0]) @ n)
+        inliers = dist < inlier_thresh_m
+        if best_inliers is None or inliers.sum() > best_inliers.sum():
+            best_inliers, best_n = inliers, n
+
+    # Refit on the inlier set via SVD -> least-squares plane, steadier than the 3-point fit
+    inlier_pts = pts[best_inliers]
+    centroid = inlier_pts.mean(axis=0)
+    _, _, vh = np.linalg.svd(inlier_pts - centroid)
+    n = vh[-1] / np.linalg.norm(vh[-1])
+
+    # Orient the normal back toward the camera (origin) so food ABOVE the plate reads positive
+    if n @ centroid > 0:
+        n = -n
+
+    inlier_ratio = float(best_inliers.mean())
+    logger.info(
+        f"  Plane | fitted on {len(inlier_pts)}/{len(pts)} ring pts (inliers={inlier_ratio:.2f})  "
+        f"normal=[{n[0]:.2f}, {n[1]:.2f}, {n[2]:.2f}]  "
+        f"tilt={np.degrees(np.arccos(min(abs(n[2]), 1.0))):.1f}deg off camera axis"
+    )
+    return n, centroid, inlier_ratio
 
 
 def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
@@ -323,7 +439,7 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     instance_scores = results["scores"]
 
     if instance_masks.shape[0] == 0:
-        logger.warning("  SAM 3 | No food instances found — using full-image fallback mask")
+        logger.warning("  SAM 3 | No food instances found -> using full-image fallback mask")
         fallback = np.ones((img_h, img_w), dtype=np.uint8)
         return fallback, [], [fallback]
 
@@ -374,75 +490,55 @@ def compute_volume(
         depth_map: np.ndarray,
         food_mask: np.ndarray,
         image_info: CameraInfo,
-        plate_depth_m: float,
+        plane_n: np.ndarray,
+        plane_p0: np.ndarray,
 ) -> VolumeResult:
     """
-    Integrate volume from height field: sum(h * pixel_area).
-    Heights computed as h = plate_depth - Z_food, using DepthPro's metric depth directly.
+    Integrate volume as a sum of per-pixel prisms, but measure height as the perpendicular distance from each food point to the fitted support plane
+    (h = n . (P - p0)) rather than plate_depth - Z. Same prism idea as before, just referenced to a real tilted plane so the
+    perspective slope is gone before integration
     """
-    food_pixels = food_mask > 0
-
-    if not np.any(food_pixels):
+    food_px = food_mask > 0
+    if not np.any(food_px):
         logger.warning("  Volume | No food pixels :( returning zero volume")
-        return VolumeResult(0.0, plate_depth_m, 0.0, 0.0)
+        return VolumeResult(0.0, float(plane_p0[2]), 0.0, 0.0)
 
-    food_depths = depth_map[food_pixels]
+    ys, xs = np.where(food_px)
+    fx, fy, cx, cy = image_info.fx, image_info.fy, image_info.cx, image_info.cy
 
-    logger.info(
-        f"  Volume | Food pixel depth: "
-        f"min={food_depths.min():.3f}m  median={np.median(food_depths):.3f}m  max={food_depths.max():.3f}m"
-    )
-    logger.info(f"  Volume | Plate surface={plate_depth_m:.3f}m")
+    z = depth_map[ys, xs].astype(np.float64)
+    x = (xs - cx) * z / fx
+    y = (ys - cy) * z / fy
+    pts = np.stack([x, y, z], axis=1)
 
-    # Height above plate surface (negative values clipped to 0)
-    heights_m = plate_depth_m - food_depths
-    n_clipped = int(np.sum(heights_m < 0))
+    # Perpendicular height above the plane, clipped as before
+    heights_m = (pts - plane_p0) @ plane_n
+    n_below = int(np.sum(heights_m < 0))
     heights_m = np.clip(heights_m, 0.0, MAX_FOOD_HEIGHT_M)
+    clipped_high = int(np.sum(heights_m >= MAX_FOOD_HEIGHT_M - 1e-9))
+    clipped_high_pct = 100.0 * clipped_high / len(heights_m)  # relief pinned at the cap -> likely a scale failure
 
-    nonzero_heights = heights_m[heights_m > 0]
-    if len(nonzero_heights) == 0:
-        logger.warning(
-            "  Volume | ALL height values are <= 0 after clipping. "
-            "Food pixels appear deeper than plate surface. Segmentation or depth may be wrong."
-        )
+    # Per-pixel frontal footprint from the pinhole model. The cos term corrects foreshortening:
+    # a ray hitting the surface at angle theta to the plane normal covers 1/cos(theta) more ground.
+    pixel_area_m2 = (z / fx) * (z / fy)
+    rays = pts / np.linalg.norm(pts, axis=1, keepdims=True)
+    cos_theta = np.clip(np.abs(rays @ plane_n), 0.3, 1.0)  # floor avoids blow-up at grazing angles
+    pixel_area_m2 = pixel_area_m2 / cos_theta
+
+    total_volume_cm3 = float(np.sum(heights_m * pixel_area_m2)) * M3_TO_CM3
+
+    nonzero = heights_m[heights_m > 0]
+    if len(nonzero) == 0:
+        logger.warning("  Volume | ALL heights <= 0 after clipping -> check plane orientation / segmentation")
     else:
         logger.info(
-            f"  Volume | Height field (cm): "
-            f"min={nonzero_heights.min()*100:.2f}  "
-            f"mean={nonzero_heights.mean()*100:.2f}  "
-            f"max={nonzero_heights.max()*100:.2f}  "
-            f"| {n_clipped} px clipped to 0 ({n_clipped/len(heights_m)*100:.1f}%)"
+            f"  Volume | Height above plane (cm): min={nonzero.min()*100:.2f} "
+            f"mean={nonzero.mean()*100:.2f} max={nonzero.max()*100:.2f} "
+            f"| {n_below} px below plane ({n_below/len(heights_m)*100:.1f}%)"
         )
+    logger.info(f"  Volume | {total_volume_cm3:.2f} cm^3  | food_px={len(z)}  fx={fx:.0f}  fy={fy:.0f}")
 
-    # Pixel area in world coordinates at each food pixel's depth
-    pixel_area_m2 = (food_depths / image_info.fx) * (food_depths / image_info.fy)
-    logger.info(
-        f"  Volume | Pixel area (cm²): "
-        f"min={pixel_area_m2.min()*1e4:.4f}  "
-        f"mean={pixel_area_m2.mean()*1e4:.4f}  "
-        f"max={pixel_area_m2.max()*1e4:.4f}"
-    )
-
-    # Volume integration: sum(height * pixel_area)
-    dV = heights_m * pixel_area_m2
-    total_volume_m3 = float(np.sum(dV))
-    total_volume_cm3 = total_volume_m3 * M3_TO_CM3
-
-    logger.info(
-        f"  Volume | Integration: sum(dV)={total_volume_m3:.8f} m^3 = {total_volume_cm3:.2f} cm^3  "
-        f"| food_pixels={int(food_pixels.sum())}  fx={image_info.fx:.0f}  fy={image_info.fy:.0f}"
-    )
-
-    max_h_cm = float(heights_m.max()) * 100.0 if len(heights_m) > 0 else 0.0
-    mean_h_cm = float(heights_m.mean()) * 100.0 if len(heights_m) > 0 else 0.0
-
-    return VolumeResult(
-        volume_cm3=total_volume_cm3,
-        plate_depth_m=plate_depth_m,
-        max_food_height_cm=max_h_cm,
-        mean_food_height_cm=mean_h_cm,
-    )
-
+    return VolumeResult(total_volume_cm3, float(plane_p0[2]), float(heights_m.max()) * 100.0, float(heights_m.mean()) * 100.0, clipped_high_pct)
 
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
@@ -512,10 +608,11 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
 
     t_plate_depth_start = time.perf_counter()
     plate_depth_m = estimate_plate_depth(depth_map, food_mask)
-    logger.info(f"[D] Plate depth: {plate_depth_m:.3f}m ({time.perf_counter() - t_plate_depth_start:.3f}s)")
+    logger.info(f"[D] Plate depth: {plate_depth_m:.3f}m ({time.perf_counter() - t_plate_depth_start:.3f}s) (deprecated now with plane fitting)")
 
     t_volume_start = time.perf_counter()
-    volume_res = compute_volume(depth_map, food_mask, image_info, plate_depth_m)
+    plane_n, plane_p0, plane_inliers = fit_support_plane(depth_map, food_mask, image_info)
+    volume_res = compute_volume(depth_map, food_mask, image_info, plane_n, plane_p0)
     logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
     # Render debug visualisations
@@ -546,13 +643,39 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
 
 @torch.no_grad()
 def run_custom_model(image: Image.Image) -> float:
-    """Estimate mass (g) using custom trained model weights."""
-    tensor = _rgb_transform(image).unsqueeze(0).to(device)
+    """
+    Estimate mass (g) using the custom trained model. If the model was trained with
+    --use_volume, compute the geometric volume scalar the same way the cache did and feed it in
+    """
+    tensor = _rgb_transform(image).unsqueeze(0)
+
+    # Work out whether we need the scalar. Peeking at the loader's flag would build it, so load once, read the flag, and compute the scalar BEFORE
+    # the final fetch, since estimate_depth/segment_food pull other models onto cuda and would otherwise evict custom_volume back to cpu mid-call.
+    volume_t = None
+    if getattr(get_model("custom_volume"), "_use_volume", False):
+        depth_map, focal_px = estimate_depth(image)
+        w, h = image.size
+        cam = CameraInfo(fx=focal_px, fy=focal_px, cx=w / 2.0, cy=h / 2.0,
+                         image_width=w, image_height=h, source="depthpro_fov")
+        mask, _, _ = segment_food(image)
+        plane_n, plane_p0, _ = fit_support_plane(depth_map, mask, cam)
+        vol = compute_volume(depth_map, mask, cam, plane_n, plane_p0).volume_cm3
+        volume_t = torch.tensor([vol], dtype=torch.float32)
+
+    # Fetch the model LAST so it lands on the GPU and nothing evicts it before we run
     model = get_model("custom_volume")
-    out = model(tensor).squeeze().item()
+    model_device = next(model.parameters()).device
+    tensor = tensor.to(model_device)
+
+    if volume_t is not None:
+        out = model(tensor, volume_t.to(model_device)).squeeze().item()
+    else:
+        out = model(tensor).squeeze().item()
+
     if getattr(model, "_log_target", False):
         out = float(np.exp(out))
     return out
+
 
 @app.post("/api/v1/estimate-volume-dl")
 async def volume_estimation_dl(file: UploadFile = File(...)):
