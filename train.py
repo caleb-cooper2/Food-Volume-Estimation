@@ -252,6 +252,13 @@ class VolumeAssistedRegressor(nn.Module):
         self.norm = backbone.classifier[0] # LayerNorm2d(768), runs after avgpool
         self.log_target = log_target
 
+        # Standardisation stats for the log-volume scalar. Without this the scalar enters the head as a
+        # near-constant ~log(200) offset (tiny variation next to the LayerNorm'd features) that the bias
+        # just soaks up, so the head learns to ignore it. Filled from the train cache via set_volume_stats
+        # and saved as buffers so inference (main.py) whitens identically.
+        self.register_buffer("log_volume_mean", torch.zeros(1))
+        self.register_buffer("log_volume_std", torch.ones(1))
+
         if freeze_backbone:
             for param in self.features.parameters():
                 param.requires_grad = False
@@ -266,9 +273,15 @@ class VolumeAssistedRegressor(nn.Module):
             head_layers.append(nn.Softplus())
         self.head = nn.Sequential(*head_layers)
 
+    def set_volume_stats(self, log_mean: float, log_std: float) -> None:
+        """Set the log-volume standardisation stats (from the train split's cached scalars)."""
+        self.log_volume_mean.fill_(float(log_mean))
+        self.log_volume_std.fill_(max(float(log_std), 1e-3))  # guard against a degenerate/zero std
+
     def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
         feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)  # (B, 768)
         v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)                  # (B, 1), log cm^3
+        v = (v - self.log_volume_mean) / self.log_volume_std                   # whiten so the head sees the variation
         return self.head(torch.cat([feats, v], dim=1)).squeeze(1)      # (B,)
 
 
@@ -691,6 +704,13 @@ def main(args):
         head_bias_init=head_bias_init,
         use_volume=args.use_volume,
     ).to(device)
+
+    # Whiten the volume scalar from the TRAIN split only (no val/test leakage) so the head reads its
+    # variation rather than a constant offset. Buffers travel with the checkpoint -> inference matches.
+    if args.use_volume:
+        train_log_vols = np.log([volume_lookup[d] for d in train_ids if d in volume_lookup])
+        model.set_volume_stats(float(train_log_vols.mean()), float(train_log_vols.std()))
+        logger.info(f"Volume scalar whitening: log-mean={train_log_vols.mean():.3f}  log-std={train_log_vols.std():.3f}")
 
     # log-space MSE optimises relative error and is robust to the skewed target.
     loss_fn = nn.MSELoss() if args.log_target else nn.HuberLoss(delta=50.0)

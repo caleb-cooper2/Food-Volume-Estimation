@@ -260,7 +260,12 @@ async def volume_estimation_multiview(
 
     logger.info(f"Depth metric after resize: {depth_metric_resized.shape}, VGGT: {vggt_depth.shape}. In theory, these should match")
 
-    scale = float(np.median(depth_metric_resized[bg_mask]) / np.median(vggt_depth[bg_mask]))
+    # Anchor VGGT's up-to-scale depth to DepthPro's metric depth over the background. Median of the per-pixel ratios is a better estimate of the single multiplicative factor than the ratio of medians
+    bg_ratio = depth_metric_resized[bg_mask] / np.clip(vggt_depth[bg_mask], 1e-6, None)
+    bg_ratio = bg_ratio[np.isfinite(bg_ratio) & (bg_ratio > 0)]
+    if bg_ratio.size < 200:
+        logger.warning(f"Only {bg_ratio.size} valid background px for scale anchoring -> scale may be unreliable")
+    scale = float(np.median(bg_ratio))
     print(f"VGGT scale factor from DepthPro: {scale:.4f}")
 
     world_points_metric = world_points * scale

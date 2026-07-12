@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CSV_FIELDS = ["dish_id", "volume_cm3", "food_coverage_pct", "plane_inliers", "mean_height_cm", "max_height_cm", "clipped_high_pct"]
+CSV_FIELDS = ["dish_id", "volume_cm3", "food_coverage_pct", "plane_inliers", "mean_height_cm", "max_height_cm", "clipped_high_pct", "geometry_confidence"]
 
 
 def already_cached(out_path: Path) -> set[str]:
@@ -51,6 +51,7 @@ def volume_for_dish(pil_image: Image.Image) -> dict:
         "mean_height_cm": round(vr.mean_food_height_cm, 2),
         "max_height_cm": round(vr.max_food_height_cm, 2),
         "clipped_high_pct": round(vr.clipped_high_pct, 1),
+        "geometry_confidence": round(vr.geometry_confidence, 3),
     }
 
 
@@ -104,6 +105,12 @@ def main(args):
             # Physically implausible relief -> DepthPro almost certainly mis-scaled this scene, drop it
             if row["mean_height_cm"] > 8.0 or row["clipped_high_pct"] > 10.0:
                 logger.warning(f"{dish_id}: QC reject relief (mean={row['mean_height_cm']}cm clipped={row['clipped_high_pct']:.0f}%)")
+                n_skip += 1
+                continue
+
+            # Low geometry confidence (oblique plane fit / grazing pixels) -> the height-field integral is unreliable, so keep it out of the training cache rather than feeding the head a bad anchor
+            if row["geometry_confidence"] < 0.5:
+                logger.warning(f"{dish_id}: QC reject low geometry confidence ({row['geometry_confidence']})")
                 n_skip += 1
                 continue
 

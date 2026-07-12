@@ -64,6 +64,7 @@ class VolumeResult:
     max_food_height_cm: float
     mean_food_height_cm: float
     clipped_high_pct: float = 0.0
+    geometry_confidence: float = 1.0  # 0..1, drops on oblique views / heavy clipping where the height-field integral is unreliable
 
 
 logging.basicConfig(
@@ -113,6 +114,9 @@ class VolumeAssistedRegressor(nn.Module):
         self.avgpool = backbone.avgpool
         self.norm = backbone.classifier[0]           # LayerNorm2d(768)
         self.log_target = log_target
+        # Standardisation stats for the log-volume scalar, filled from the train cache and saved in the state_dict so inference normalises
+        self.register_buffer("log_volume_mean", torch.zeros(1))
+        self.register_buffer("log_volume_std", torch.ones(1))
         head_layers = [
             nn.Linear(768 + 1, 256),
             nn.GELU(),
@@ -126,6 +130,7 @@ class VolumeAssistedRegressor(nn.Module):
     def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
         feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)
         v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)
+        v = (v - self.log_volume_mean) / self.log_volume_std   # whiten so the head sees the variation, not a constant offset
         return self.head(torch.cat([feats, v], dim=1)).squeeze(1)
 
 def load_model(model_path: str) -> nn.Module:
@@ -501,7 +506,7 @@ def compute_volume(
     food_px = food_mask > 0
     if not np.any(food_px):
         logger.warning("  Volume | No food pixels :( returning zero volume")
-        return VolumeResult(0.0, float(plane_p0[2]), 0.0, 0.0)
+        return VolumeResult(0.0, float(plane_p0[2]), 0.0, 0.0, 0.0, 0.0)
 
     ys, xs = np.where(food_px)
     fx, fy, cx, cy = image_info.fx, image_info.fy, image_info.cx, image_info.cy
@@ -522,10 +527,22 @@ def compute_volume(
     # a ray hitting the surface at angle theta to the plane normal covers 1/cos(theta) more ground.
     pixel_area_m2 = (z / fx) * (z / fy)
     rays = pts / np.linalg.norm(pts, axis=1, keepdims=True)
-    cos_theta = np.clip(np.abs(rays @ plane_n), 0.3, 1.0)  # floor avoids blow-up at grazing angles
+    cos_theta = np.abs(rays @ plane_n)
+    cos_theta = np.clip(cos_theta, 0.7, 1.0) # floor avoids blow-up at grazing angles. Floor well above zero
     pixel_area_m2 = pixel_area_m2 / cos_theta
 
     total_volume_cm3 = float(np.sum(heights_m * pixel_area_m2)) * M3_TO_CM3
+
+    # trust drops if
+    # - the support plane tilts off the camera axis
+    # - rays graze the surface -> the sidewalls where over-counting lives
+    # - height pins at the cap (usually a depth-scale failure)
+    view_cos = float(abs(plane_n[2])) # 1.0 overhead, cos(tilt) otherwise
+    tilt_conf = float(np.clip((view_cos - 0.7) / 0.3, 0.0, 1.0)) # ~1 overhead, 0 by ~45deg tilt
+    graze_frac = float(np.mean(cos_theta <= 0.7 + 1e-6))
+    graze_conf = float(np.clip(1.0 - graze_frac / 0.3, 0.0, 1.0)) # 30%+ grazing food px -> untrusted
+    clip_conf = float(np.clip(1.0 - clipped_high_pct / 10.0, 0.0, 1.0))
+    geometry_confidence = round(tilt_conf * graze_conf * clip_conf, 3)
 
     nonzero = heights_m[heights_m > 0]
     if len(nonzero) == 0:
@@ -536,9 +553,16 @@ def compute_volume(
             f"mean={nonzero.mean()*100:.2f} max={nonzero.max()*100:.2f} "
             f"| {n_below} px below plane ({n_below/len(heights_m)*100:.1f}%)"
         )
-    logger.info(f"  Volume | {total_volume_cm3:.2f} cm^3  | food_px={len(z)}  fx={fx:.0f}  fy={fy:.0f}")
+    logger.info(
+        f"  Volume | {total_volume_cm3:.2f} cm^3  | food_px={len(z)}  fx={fx:.0f}  fy={fy:.0f}  "
+        f"confidence={geometry_confidence:.2f} (tilt={tilt_conf:.2f} graze={graze_conf:.2f} clip={clip_conf:.2f})"
+    )
 
-    return VolumeResult(total_volume_cm3, float(plane_p0[2]), float(heights_m.max()) * 100.0, float(heights_m.mean()) * 100.0, clipped_high_pct)
+    return VolumeResult(
+        total_volume_cm3, float(plane_p0[2]),
+        float(heights_m.max()) * 100.0, float(heights_m.mean()) * 100.0,
+        clipped_high_pct, geometry_confidence
+        )
 
 @app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
 async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
@@ -550,7 +574,6 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     4. Integrate volume from height field
     """
     t_start = time.perf_counter()
-    confidence = "high"
 
     if file.content_type not in ("image/jpeg", "image/jpg", "image/png", "image/heic"):
         raise HTTPException(
@@ -615,6 +638,17 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     volume_res = compute_volume(depth_map, food_mask, image_info, plane_n, plane_p0)
     logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
+    confidence = (
+        "high" if volume_res.geometry_confidence >= 0.66 else
+        "medium" if volume_res.geometry_confidence >= 0.33 else
+        "low"
+    )
+    if confidence != "high":
+        logger.warning(
+            f"[E] Geometry confidence {volume_res.geometry_confidence:.2f} ({confidence}) -> "
+            f"view likely too oblique for a reliable single-view volume"
+        )
+
     # Render debug visualisations
     depth_b64 = depth_to_b64_png(depth_map, pil_image=pillow_image)
     depth_bytes = base64.b64decode(depth_b64)
@@ -651,15 +685,22 @@ def run_custom_model(image: Image.Image) -> float:
 
     # Work out whether we need the scalar. Peeking at the loader's flag would build it, so load once, read the flag, and compute the scalar BEFORE
     # the final fetch, since estimate_depth/segment_food pull other models onto cuda and would otherwise evict custom_volume back to cpu mid-call.
+    model = get_model("custom_volume")
     volume_t = None
-    if getattr(get_model("custom_volume"), "_use_volume", False):
+    if getattr(model, "_use_volume", False):
         depth_map, focal_px = estimate_depth(image)
         w, h = image.size
         cam = CameraInfo(fx=focal_px, fy=focal_px, cx=w / 2.0, cy=h / 2.0,
                          image_width=w, image_height=h, source="depthpro_fov")
         mask, _, _ = segment_food(image)
         plane_n, plane_p0, _ = fit_support_plane(depth_map, mask, cam)
-        vol = compute_volume(depth_map, mask, cam, plane_n, plane_p0).volume_cm3
+        vr = compute_volume(depth_map, mask, cam, plane_n, plane_p0)
+
+        if vr.geometry_confidence < 0.33:
+            vol = float(torch.exp(model.log_volume_mean).item())
+            logger.warning(f"  Custom | geometry confidence {vr.geometry_confidence:.2f} -> using prior-mean volume scalar")
+        else:
+            vol = vr.volume_cm3
         volume_t = torch.tensor([vol], dtype=torch.float32)
 
     # Fetch the model LAST so it lands on the GPU and nothing evicts it before we run
@@ -708,3 +749,4 @@ async def volume_estimation_dl(file: UploadFile = File(...)):
 
     logger.info(f"Model estimated mass: {mass:.2f} g")
     logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")
+    return {"mass_g": round(mass, 2)}
