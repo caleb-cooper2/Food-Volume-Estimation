@@ -388,31 +388,23 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose,
     Photometric augmentation: applied to both overhead and side views
     """
     spatial_overhead = A.Compose([
-        A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
+        A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.1),
-        A.Affine(
-            scale=(0.35, 0.85),
-            border_mode=cv2.BORDER_REPLICATE,
-            p=0.5,
-        )
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5),
     ])
 
     spatial_side = A.Compose([
-        A.RandomResizedCrop(size=(img_size, img_size), scale=(0.6, 1.0), ratio=(0.9, 1.1), p=1.0),
+        A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
-        A.Affine(
-            scale=(0.35, 0.85),
-            border_mode=cv2.BORDER_REPLICATE,
-            p=0.5,
-        )
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5),
     ])
 
     photometric = A.Compose([
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
         A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
         A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-        A.GaussNoise(std_range=(5.0 / 255.0, 255.0 / 255.0) , p=0.2)
+        A.GaussNoise(std_range=(5.0 / 255.0, 30.0 / 255.0), p=0.2),  # was (…, 255/255): std up to full range wiped the image
     ])
 
     return spatial_overhead, spatial_side, photometric
@@ -712,8 +704,8 @@ def main(args):
         model.set_volume_stats(float(train_log_vols.mean()), float(train_log_vols.std()))
         logger.info(f"Volume scalar whitening: log-mean={train_log_vols.mean():.3f}  log-std={train_log_vols.std():.3f}")
 
-    # log-space MSE optimises relative error and is robust to the skewed target.
-    loss_fn = nn.MSELoss() if args.log_target else nn.HuberLoss(delta=50.0)
+    # log-space Huber optimises relative error (like log-MSE) but caps the pull of the skewed target's long tail, so a few outlier dishes can't drag the head toward a safe mean.
+    loss_fn = nn.HuberLoss(delta=0.15) if args.log_target else nn.HuberLoss(delta=50.0)
 
     _, head_params = split_backbone_head_params(model)
     optimiser = torch.optim.AdamW(head_params, lr=args.lr, weight_decay=1e-4)
