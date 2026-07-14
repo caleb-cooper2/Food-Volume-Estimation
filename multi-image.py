@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
-from main import estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M
+from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M
 from model_manage import register_loader, get_model, preload_all
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,9 @@ SEMANTIC_CV_FLOOR = 0.15  # rough uncertainty we give the geometric estimate whe
 INSTANCE_COLLAPSE_RATIO = 0.4  # instance < 40% of the fused blob => per-instance meshing collapsed (single-view slab)
 
 register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
+
+
+# Reconstruction and mesh-volume helpers (VGGT world points, reference scaling)
 
 def load_and_preprocess_images_from_pil(pil_images: list[Image.Image]) -> torch.Tensor:
     with tempfile.TemporaryDirectory() as temp_directory:
@@ -60,7 +63,6 @@ def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
     mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd)
 
     o3d.io.write_triangle_mesh("/tmp/debug_food_mesh.ply", mesh)
-    #image_names = ["data/camera_Aframe001.jpeg", "data/camera_Bframe027.jpeg", "data/camera_Aframe029.jpeg"]
 
     # Which can be converted to a trimesh and volume can be derived
     trimesh_result = trimesh.Trimesh(
@@ -178,6 +180,8 @@ def align_depth_to_vggt(depth_map: np.ndarray, orig_width: int, orig_height: int
     return resized
 
 
+# Instance mask refinement (NMS)
+
 def compute_mask_overlap_coefficient(instance_masks):
     """
     Computes the overlap coefficient for a set of binary instance masks. (ratio of area of intersection to area of smaller mask)
@@ -185,14 +189,11 @@ def compute_mask_overlap_coefficient(instance_masks):
     """
     n_instances = len(instance_masks)
     areas = np.array([m.sum() for m in instance_masks], dtype=np.float64)
-    iou = np.zeros((n_instances, n_instances))
     overlap_coefficient = np.zeros((n_instances, n_instances))
 
     for i in range(n_instances):
         for j in range(i + 1, n_instances):
             intersection = np.logical_and(instance_masks[i], instance_masks[j]).sum()
-            union = areas[i] + areas[j] - intersection
-            iou[i, j] = iou[j, i] = intersection / union if union > 0 else 0.0 # interception over union
             min_area = min(areas[i], areas[j])
             overlap_coefficient[i, j] = overlap_coefficient[j, i] = intersection / min_area if min_area > 0 else 0.0
 
@@ -217,31 +218,7 @@ def mask_non_maximum_suppression(instance_masks, scores, overlap_coefficient, co
     return [instance_masks[i] for i in keep]
 
 
-def fuse_lognormal(v_geo: float, cv_geo: float, v_prior: float, cv_prior: float) -> dict:
-    """Blend the geometric volume with the NLP portion prior in log space (volumes are positive
-    with multiplicative error, so log-normal is the natural fit). Inverse-variance weighting, so
-    whichever estimate is more confident pulls harder."""
-    var_g = np.log1p(cv_geo ** 2)
-    var_p = np.log1p(cv_prior ** 2)
-    wg, wp = 1.0 / var_g, 1.0 / var_p
-    mu = (wg * np.log(v_geo) + wp * np.log(v_prior)) / (wg + wp)
-    var = 1.0 / (wg + wp)
-    return {"volume_cm3": round(float(np.exp(mu)), 2), "cv": round(float(np.sqrt(np.expm1(var))), 3)}
-
-
-def parse_semantic_context(context: str | None) -> dict | None:
-    """Optional JSON prior from the NLP pipeline, e.g. {"total_prior_cm3": 240, "total_prior_cv": 0.3}.
-    Only total_prior_cm3 is needed. Returns None if it's missing/unparseable so fusion just gets skipped."""
-    if not context:
-        return None
-    try:
-        data = json.loads(context)
-        if data.get("total_prior_cm3"):
-            return data
-    except Exception as e:
-        logger.warning(f"Could not parse semantic context: {e}")
-    return None
-
+# Final volume selection
 
 def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, str]:
     """
@@ -254,16 +231,20 @@ def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, st
     return instance_cm3, "instance"
 
 
+# Approach C - Multi-view
+# Several RGB images -> VGGT world-point reconstruction, scale-anchored to a reference utensil (falling back to DepthPro metric depth over the background)
+# -> per-instance / fused-blob mesh volume.
+
 @app.on_event("startup")
 def startup_event():
     preload_all()
 
 
-@app.post("/api/v1/estimate-volume-multiview")
+@app.post("/api/v1/estimate-volume-multiview", response_model=EstimationResponse)
 async def volume_estimation_multiview(
         files: list[UploadFile] = File(...),
         context: str | None = Form(None),  # optional NLP semantic prior, JSON string
-):
+) -> EstimationResponse:
     # no minimum image amount as vggt outlines that single image performance is still acceptable?
     if len(files) > 10:
         raise HTTPException(400, "Maximum 10 images supported")
@@ -294,10 +275,10 @@ async def volume_estimation_multiview(
     world_points = predictions["world_points"][0, 0].cpu().numpy()  # (H, W, 3)
     vggt_depth = predictions["depth"][0, 0].cpu().numpy().squeeze(-1)  # (H, W)
 
-    print(f"world_points shape: {world_points.shape}")
-    print(f"X range: {world_points[..., 0].min():.3f} to {world_points[..., 0].max():.3f}")
-    print(f"Y range: {world_points[..., 1].min():.3f} to {world_points[..., 1].max():.3f}")
-    print(f"Z range: {world_points[..., 2].min():.3f} to {world_points[..., 2].max():.3f}")
+    logger.info(f"world_points shape: {world_points.shape}")
+    logger.info(f"X range: {world_points[..., 0].min():.3f} to {world_points[..., 0].max():.3f}")
+    logger.info(f"Y range: {world_points[..., 1].min():.3f} to {world_points[..., 1].max():.3f}")
+    logger.info(f"Z range: {world_points[..., 2].min():.3f} to {world_points[..., 2].max():.3f}")
 
     # Resize food mask to VGGT's working resolution
     food_mask_resized = cv2.resize(
@@ -307,17 +288,14 @@ async def volume_estimation_multiview(
     )
     bg_mask = food_mask_resized == 0
 
-    # Have to get a scale anchor using DepthPro on primary image, resized to match VGGT
-    depth_metric, focal_px = estimate_depth(primary)
-    depth_metric_resized = align_depth_to_vggt(depth_metric, primary.width, primary.height)
-
-    logger.info(f"Depth metric after resize: {depth_metric_resized.shape}, VGGT: {vggt_depth.shape}. In theory, these should match")
-
+    # Prefer the reference-utensil scale... only fall back to a DepthPro anchor if that fails
     scale = reference_scale_from_reconstruction(primary, world_points, utensil="fork")
 
     if scale is None:
-        depth_metric, focal_px = estimate_depth(primary)
+        # Anchor VGGT against DepthPro's metric depth over the background, resized to match VGGT
+        depth_metric, _ = estimate_depth(primary)
         depth_metric_resized = align_depth_to_vggt(depth_metric, primary.width, primary.height)
+        logger.info(f"Depth metric after resize: {depth_metric_resized.shape}, VGGT: {vggt_depth.shape}. In theory, these should match")
         bg_ratio = depth_metric_resized[bg_mask] / np.clip(vggt_depth[bg_mask], 1e-6, None)
         bg_ratio = bg_ratio[np.isfinite(bg_ratio) & (bg_ratio > 0)]
         if bg_ratio.size < 200:
@@ -348,14 +326,19 @@ async def volume_estimation_multiview(
     volume_instance_cm3 = compute_volume_per_instance(instance_masks_refined, world_points_metric)
 
     volume_cm3, volume_source = select_final_volume(volume_instance_cm3, volume_blob_cm3)
-    response = {
-        "volume_cm3": round(volume_cm3, 2),
-        "volume_source": volume_source,
-        "volume_instance_cm3": round(volume_instance_cm3, 2),
-        "volume_blob_cm3": round(volume_blob_cm3, 2),
-        "scale": round(scale, 4),
-        "semantic_fusion": None,
-    }
-
+    response = EstimationResponse(
+        approach="multi-view",
+        volume_cm3=round(volume_cm3, 2),
+        mass_g=None,
+        confidence=None,
+        diagnostics={
+            "volume_source": volume_source,
+            "volume_instance_cm3": round(volume_instance_cm3, 2),
+            "volume_blob_cm3": round(volume_blob_cm3, 2),
+            "scale": round(scale, 4),
+            "semantic_fusion": None
+        }
+    )
 
     logger.info(response)
+    return response
