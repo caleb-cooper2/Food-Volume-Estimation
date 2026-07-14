@@ -44,6 +44,8 @@ REFERENCE_LENGTHS_M = {
 }
 
 
+# Data models
+
 @dataclass
 class EstimationResponse:
     """
@@ -77,6 +79,8 @@ class VolumeResult:
     clipped_high_pct: float = 0.0
     geometry_confidence: float = 1.0  # 0..1, drops on oblique views / heavy clipping where the height-field integral is unreliable
 
+
+# App, logging and device setup
 
 logging.basicConfig(
     level="INFO",
@@ -113,74 +117,9 @@ def _load_sam3_model():
 register_loader("depthpro", _load_depth_model)
 register_loader("sam3", _load_sam3_model)
 
-class VolumeAssistedRegressor(nn.Module):
-    """
-    Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
-    Got to stay structurally identical to train.py or the state_dict won't load
-    """
-    def __init__(self, log_target: bool = True, depth_channel: bool = False):
-        super().__init__()
-        backbone = models.convnext_tiny(weights=None)
-        if depth_channel:
-            inflate_stem_to_4ch(backbone)
-        self.features = backbone.features
-        self.avgpool = backbone.avgpool
-        self.norm = backbone.classifier[0]           # LayerNorm2d(768)
-        self.log_target = log_target
-        # Standardisation stats for the log-volume scalar, filled from the train cache and saved in the state_dict so inference normalises
-        self.register_buffer("log_volume_mean", torch.zeros(1))
-        self.register_buffer("log_volume_std", torch.ones(1))
-        head_layers = [
-            nn.Linear(768 + 1, 256),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1),
-        ]
-        if not log_target:
-            head_layers.append(nn.Softplus())
-        self.head = nn.Sequential(*head_layers)
-
-    def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
-        feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)
-        v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)
-        v = (v - self.log_volume_mean) / self.log_volume_std   # whiten so the head sees the variation, not a constant offset
-        return self.head(torch.cat([feats, v], dim=1)).squeeze(1)
-
-def load_model(model_path: str) -> nn.Module:
-    """
-    Rebuild the trained model to match its checkpoint. Reads the saved args so it picks the right architecture: the plain ConvNeXt head,
-    or the volume-assisted head (norm + head, with a 769-wide first Linear because the geometric volume scalar is concatenated in)
-    """
-    checkpoint = torch.load(model_path, map_location="cpu")
-    saved_args = checkpoint.get("args", {})
-    log_target = bool(saved_args.get("log_target", False))
-    use_volume = bool(saved_args.get("use_volume", False))
-
-    depth_channel = bool(saved_args.get("depth_channel", False))
-
-    if use_volume:
-        model = VolumeAssistedRegressor(log_target=log_target, depth_channel=depth_channel)
-    else:
-        head_layers = [
-            nn.Linear(768, 256),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1),
-        ]
-        if not log_target:
-            head_layers.append(nn.Softplus())
-        model = models.convnext_tiny(weights=None)
-        if depth_channel:
-            inflate_stem_to_4ch(model)
-        model.classifier[2] = nn.Sequential(*head_layers)
-
-    model.load_state_dict(checkpoint["state_dict"])
-    model._log_target = log_target
-    model._use_volume = use_volume
-    model._depth_channel = depth_channel
-    return model.eval()
 
 
+# Reference-object scaling, relief/depth-channel helpers, and the depth, segmentation and plane/volume geometry every approach leans on
 
 def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", threshold: float = 0.5) -> Optional[np.ndarray]:
     """Segment a reference utensil with SAM 3 and return the single highest-scoring instance mask, or None if nothing confident is found"""
@@ -827,9 +766,11 @@ class VolumeAssistedRegressor(nn.Module):
     Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
     Got to stay structurally identical to train.py or the state_dict won't load
     """
-    def __init__(self, log_target: bool = True):
+    def __init__(self, log_target: bool = True, depth_channel: bool = False):
         super().__init__()
         backbone = models.convnext_tiny(weights=None)
+        if depth_channel:
+            inflate_stem_to_4ch(backbone)
         self.features = backbone.features
         self.avgpool = backbone.avgpool
         self.norm = backbone.classifier[0]           # LayerNorm2d(768)
@@ -863,23 +804,28 @@ def load_model(model_path: str) -> nn.Module:
     log_target = bool(saved_args.get("log_target", False))
     use_volume = bool(saved_args.get("use_volume", False))
 
+    depth_channel = bool(saved_args.get("depth_channel", False))
+
     if use_volume:
-        model = VolumeAssistedRegressor(log_target=log_target)
+        model = VolumeAssistedRegressor(log_target=log_target, depth_channel=depth_channel)
     else:
         head_layers = [
             nn.Linear(768, 256),
             nn.GELU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 1)
+            nn.Linear(256, 1),
         ]
         if not log_target:
             head_layers.append(nn.Softplus())
         model = models.convnext_tiny(weights=None)
+        if depth_channel:
+            inflate_stem_to_4ch(model)
         model.classifier[2] = nn.Sequential(*head_layers)
 
     model.load_state_dict(checkpoint["state_dict"])
     model._log_target = log_target
-    model._use_volume = use_volume  # stash so the endpoint knows whether to feed the scalar
+    model._use_volume = use_volume
+    model._depth_channel = depth_channel
     return model.eval()
 
 register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
