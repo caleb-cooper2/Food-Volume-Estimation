@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
-from main import estimate_depth, segment_food
+from main import estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M
 from model_manage import register_loader, get_model, preload_all
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ else:
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
 SEMANTIC_CV_FLOOR = 0.15  # rough uncertainty we give the geometric estimate when fusing with the NLP prior
+INSTANCE_COLLAPSE_RATIO = 0.4  # instance < 40% of the fused blob => per-instance meshing collapsed (single-view slab)
 
 register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
 
@@ -69,6 +70,47 @@ def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
     volume_m3 = abs(trimesh_result.volume) # it's in m3 as that's what depth map + vggt provides
     return volume_m3 * 1_000_000.0  # computer to cm^3
 
+
+def sample_world_point(world_points: np.ndarray, row: float, col: float, window: int = 3
+                       ) -> np.ndarray | None:
+    """Median 3D position in a small window around (row, col) in the VGGT world-point grid, or None
+    if nothing there was reconstructed."""
+    r, c = int(round(row)), int(round(col))
+    r0, r1 = max(r - window, 0), min(r + window + 1, world_points.shape[0])
+    c0, c1 = max(c - window, 0), min(c + window + 1, world_points.shape[1])
+    patch = world_points[r0:r1, c0:c1].reshape(-1, 3)
+    finite = patch[np.isfinite(patch).all(axis=1)]
+    return np.median(finite, axis=0) if len(finite) else None
+
+
+def reference_scale_from_reconstruction(primary: Image.Image, world_points: np.ndarray, utensil: str = "fork") -> float | None:
+    """
+    Measure the utensil's length directly in VGGT's up-to-scale world points and return the factor that makes the
+    reconstruction metric (known_length / measured_length).
+    """
+    known_m = REFERENCE_LENGTHS_M.get(utensil)
+    if known_m is None:
+        return None
+
+    mask = segment_reference_object(primary, utensil)
+    if mask is None or int(mask.sum()) < 200:
+        return None
+
+    target_h, target_w = world_points.shape[:2]
+    mask_resized = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+    p_a, p_b = measure_mask_endpoints(mask_resized)
+    point_a, point_b = sample_world_point(world_points, *p_a), sample_world_point(world_points, *p_b)
+    if point_a is None or point_b is None:
+        logger.warning("  Reference | utensil endpoints missing from reconstruction -> reference-free scale")
+        return None
+
+    measured = float(np.linalg.norm(point_a - point_b))
+    if measured <= 1e-6:
+        return None
+
+    scale = known_m / measured
+    logger.info(f"  Reference | utensil {measured:.4f} VGGT-units vs known {known_m:.3f}m -> scale x{scale:.4f}")
+    return scale
 
 def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_metric: np.ndarray) -> float:
     """
@@ -201,6 +243,17 @@ def parse_semantic_context(context: str | None) -> dict | None:
     return None
 
 
+def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, str]:
+    """
+    Prefer the per-instance volume: per-piece meshing avoids the convex ballooning the single fused blob is prone to, so it usually lands closer to truth.
+    When instance << blob that's the collapse signature, and the fused multi-view blob is the trustworthy number!
+    """
+    if blob_cm3 > 0 and instance_cm3 < INSTANCE_COLLAPSE_RATIO * blob_cm3:
+        logger.warning(f"Instance {instance_cm3:.1f} < {INSTANCE_COLLAPSE_RATIO:.0%} of blob {blob_cm3:.1f} -> per-instance collapsed, falling back to fused blob")
+        return blob_cm3, "blob_fallback"
+    return instance_cm3, "instance"
+
+
 @app.on_event("startup")
 def startup_event():
     preload_all()
@@ -260,49 +313,49 @@ async def volume_estimation_multiview(
 
     logger.info(f"Depth metric after resize: {depth_metric_resized.shape}, VGGT: {vggt_depth.shape}. In theory, these should match")
 
-    # Anchor VGGT's up-to-scale depth to DepthPro's metric depth over the background. Median of the per-pixel ratios is a better estimate of the single multiplicative factor than the ratio of medians
-    bg_ratio = depth_metric_resized[bg_mask] / np.clip(vggt_depth[bg_mask], 1e-6, None)
-    bg_ratio = bg_ratio[np.isfinite(bg_ratio) & (bg_ratio > 0)]
-    if bg_ratio.size < 200:
-        logger.warning(f"Only {bg_ratio.size} valid background px for scale anchoring -> scale may be unreliable")
-    scale = float(np.median(bg_ratio))
-    print(f"VGGT scale factor from DepthPro: {scale:.4f}")
+    scale = reference_scale_from_reconstruction(primary, world_points, utensil="fork")
+
+    if scale is None:
+        depth_metric, focal_px = estimate_depth(primary)
+        depth_metric_resized = align_depth_to_vggt(depth_metric, primary.width, primary.height)
+        bg_ratio = depth_metric_resized[bg_mask] / np.clip(vggt_depth[bg_mask], 1e-6, None)
+        bg_ratio = bg_ratio[np.isfinite(bg_ratio) & (bg_ratio > 0)]
+        if bg_ratio.size < 200:
+            logger.warning(f"Only {bg_ratio.size} valid background px for scale anchoring -> scale may be unreliable")
+        scale = float(np.median(bg_ratio))
+        logger.info(f"VGGT scale from DepthPro background (fallback): {scale:.4f}")
+    else:
+        logger.info(f"VGGT scale from reference utensil: {scale:.4f}")
 
     world_points_metric = world_points * scale
 
-    food_points_metric = world_points_metric[food_mask_resized > 0]
-    volume_blob_cm3 = compute_volume_from_mesh(food_points_metric)
-    print(volume_blob_cm3)
+    all_world_points = predictions["world_points"][0].cpu().numpy()  # (S, H, W, 3)
+    vh, vw = all_world_points.shape[1], all_world_points.shape[2]
 
-    print("-----------------------------------------")
+    fused = []
+    for i, img in enumerate(pil_images):
+        frame_mask = food_mask if i == 0 else segment_food(img)[0]  # reuse frame-0 mask, segment the rest
+        frame_mask_resized = cv2.resize(frame_mask.astype(np.uint8), (vw, vh), interpolation=cv2.INTER_NEAREST)
+        fused.append(all_world_points[i][frame_mask_resized > 0])
+
+    food_points_metric = np.concatenate(fused, axis=0) * scale
+    logger.info(f"Fused {len(food_points_metric)} food points across {len(pil_images)} views "
+                f"(frame 0 alone was {int((food_mask_resized > 0).sum())})")
+
+    volume_blob_cm3 = compute_volume_from_mesh(food_points_metric)
 
     # per-instance beats the single blob, and use the NMS-refined masks (we already computed them above, no point double-counting the raw overlaps)
     volume_instance_cm3 = compute_volume_per_instance(instance_masks_refined, world_points_metric)
-    print(volume_instance_cm3)
 
-    volume_cm3 = volume_instance_cm3
+    volume_cm3, volume_source = select_final_volume(volume_instance_cm3, volume_blob_cm3)
     response = {
         "volume_cm3": round(volume_cm3, 2),
+        "volume_source": volume_source,
         "volume_instance_cm3": round(volume_instance_cm3, 2),
         "volume_blob_cm3": round(volume_blob_cm3, 2),
         "scale": round(scale, 4),
         "semantic_fusion": None,
     }
-
-    # optional: fuse with the NLP portion prior if one was passed. inert until the NLP side actually sends context
-    sem = parse_semantic_context(context)
-    if sem is not None:
-        fused = fuse_lognormal(
-            volume_cm3, SEMANTIC_CV_FLOOR,
-            float(sem["total_prior_cm3"]), float(sem.get("total_prior_cv", 0.3)),
-        )
-        response["volume_cm3"] = fused["volume_cm3"]
-        response["semantic_fusion"] = {
-            "prior_cm3": float(sem["total_prior_cm3"]),
-            "fused_cm3": fused["volume_cm3"],
-            "fused_cv": fused["cv"],
-        }
-        logger.info(f"Fused geometric {volume_cm3:.1f} with prior {sem['total_prior_cm3']:.1f} -> {fused['volume_cm3']:.1f} cm^3")
 
 
     logger.info(response)

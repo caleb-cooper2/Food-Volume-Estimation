@@ -36,6 +36,15 @@ RELIEF_MEAN_M = 0.010
 RELIEF_STD_M = 0.020
 NOMINAL_FOOD_HEIGHT_CM = 2.0 # crude portion-height prior for the low-confidence fallback
 
+# Known tip-to-tip lengths of common cutlery (metres). https://www.steelcitycutlery.com/shapesandsizes.html?srsltid=AfmBOoqN4Sg7zv4iAoLmDFJwXQP1FkXmRXZnqZTYWxcUiBf5r3rzJ14o, https://sabre-paris.com/en/pages/size-guide
+# These could vary ~±10% by brand/style, and volume error grows with the CUBE of length error
+REFERENCE_LENGTHS_M = {
+    "fork": 0.210, # table fork ~20.5-22 cm
+    "knife": 0.240, # table knife ~24 cm
+    "spoon": 0.215, # tablespoon ~21.5 cm
+}
+
+
 @dataclass
 class VolumeEstimateResponse:
     volume_cm3: float
@@ -179,6 +188,94 @@ _rgb_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
+
+
+def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", threshold: float = 0.5) -> Optional[np.ndarray]:
+    """Segment a reference utensil with SAM 3 and return the single highest-scoring instance mask, or None if nothing confident is found"""
+    inputs = sam3_processor(images=pillow_image, text=utensil, return_tensors="pt").to(torch_device)
+    sam3 = get_model("sam3")
+    with torch.no_grad():
+        outputs = sam3(**inputs)
+
+    results = sam3_processor.post_process_instance_segmentation(
+        outputs, threshold=threshold, mask_threshold=0.5,
+        target_sizes=inputs.get("original_sizes").tolist(),
+    )[0]
+
+    masks, scores = results["masks"], results["scores"]
+    if masks.shape[0] == 0:
+        logger.warning(f"  Reference | no '{utensil}' found -> cannot anchor scale from a reference object")
+        return None
+
+    best = int(torch.argmax(scores).item())
+    logger.info(f"  Reference | '{utensil}' found: score={scores[best]:.3f}  ({masks.shape[0]} candidate(s))")
+    return masks[best].cpu().numpy().astype(np.uint8)
+
+
+def measure_mask_endpoints(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Find the two tip pixels of an elongated mask via PCA: project every mask pixel onto its principal
+    axis and take the extremes. Returns two (row, col) pixel coordinates.
+    """
+    ys, xs = np.where(mask > 0)
+    coords = np.stack([xs, ys], axis=1).astype(np.float64)  # (N, 2) in (x, y)
+    centred = coords - coords.mean(axis=0)
+    _, _, vh = np.linalg.svd(centred, full_matrices=False)
+    projections = centred @ vh[0]  # vh[0] = principal (long) axis
+    p_min = coords[np.argmin(projections)]
+    p_max = coords[np.argmax(projections)]
+    return p_min[::-1], p_max[::-1]  # (x, y) -> (row, col) for depth-map indexing
+
+
+def backproject_pixel(row: float, col: float, depth_map: np.ndarray, cam: CameraInfo, window: int = 5
+                      ) -> np.ndarray:
+    """Back-project one pixel to a 3D camera-space point (metres), using the median depth in a small
+    window for robustness against per-pixel depth noise right at the tip."""
+    r, c = int(round(row)), int(round(col))
+    r0, r1 = max(r - window, 0), min(r + window + 1, depth_map.shape[0])
+    c0, c1 = max(c - window, 0), min(c + window + 1, depth_map.shape[1])
+    patch = depth_map[r0:r1, c0:c1]
+    z = float(np.median(patch[patch > 0])) if np.any(patch > 0) else float(depth_map[r, c])
+    x = (c - cam.cx) * z / cam.fx
+    y = (r - cam.cy) * z / cam.fy
+    return np.array([x, y, z], dtype=np.float64)
+
+
+def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo,
+                           utensil: str = "fork") -> Optional[float]:
+    """
+    Recover the absolute-scale correction from a utensil of known real length: measure its 3D length
+    in the depth model's (up-to-scale) units and divide the known length by it. Returns the factor to
+    multiply the depth map by, or None if no reliable reference was found (caller then falls back to
+    the reference-free path).
+    """
+    known_m = REFERENCE_LENGTHS_M.get(utensil)
+    if known_m is None:
+        logger.warning(f"  Reference | no known length for '{utensil}'")
+        return None
+
+    mask = segment_reference_object(pillow_image, utensil)
+    if mask is None or int(mask.sum()) < 200:
+        return None
+
+    p_a, p_b = measure_mask_endpoints(mask)
+    measured_m = float(np.linalg.norm(
+        backproject_pixel(*p_a, depth_map, cam) - backproject_pixel(*p_b, depth_map, cam)
+    ))
+    if measured_m <= 1e-4:
+        logger.warning("  Reference | degenerate measured length -> skipping reference scaling")
+        return None
+
+    correction = known_m / measured_m
+    logger.info(
+        f"  Reference | '{utensil}' measured {measured_m*100:.1f}cm in raw depth units "
+        f"vs known {known_m*100:.1f}cm -> depth scale x{correction:.3f}"
+    )
+    if not (0.33 <= correction <= 3.0):  # a >3x correction is almost always a bad mask/depth, not real scale
+        logger.warning(f"  Reference | correction x{correction:.3f} implausible -> rejecting, using reference-free scale")
+        return None
+    return correction
+
 
 def depth_to_relief_channel(depth_m: np.ndarray) -> np.ndarray:
     """Metric depth -> table-relative relief (m above support). Mirrors train.py... the background median cancels the RealSense<->DepthPro offset."""
@@ -655,6 +752,13 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
         f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
         f"({time.perf_counter()-t_depth_start:.3f}s)"
     )
+
+    t_reference_start = time.perf_counter()
+    reference_correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil="fork")
+    if reference_correction is not None:
+        depth_map = depth_map * reference_correction
+        logger.info(f"[B*] Reference-anchored depth x{reference_correction:.3f} "
+                    f"({time.perf_counter() - t_reference_start:.3f}s)")
 
     image_info = CameraInfo(
         fx=focal_length_px,
