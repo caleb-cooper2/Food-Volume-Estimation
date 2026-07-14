@@ -30,20 +30,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Processor, Sam3Model
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
-MAX_LONG_EDGE = 1280 # px
 MAX_FOOD_HEIGHT_M = 0.15
 
+
+# =============================================================================
+# Data models
+# =============================================================================
+
 @dataclass
-class VolumeEstimateResponse:
-    volume_cm3: float
-    confidence: str
-    food_pixel_count: int
-    food_coverage_pct: float
-    max_food_height_cm: float
-    mean_food_height_cm: float
-    plate_depth_m: float
-    intrinsics_source: str
-    debug_overlay_b64: Optional[str]
+class EstimationResponse:
+    """
+    volume_cm3 or mass_g gets filled depending on what the approach actually predicts (the geometric and multi-view routes give a volume, the trained model gives a mass), and anything
+    approach-specific gets added in diagnostics so the top-level shape stays identical across all three.
+    """
+    approach: str # one of 'monocular-geometric' | 'deep-learning' | 'multi-view'
+    volume_cm3: Optional[float]
+    mass_g: Optional[float]
+    confidence: Optional[str]
+    diagnostics: dict # approach-specific extras (heights, coverage, scale, semantic fusion, debug overlay, ...)
 
 @dataclass
 class CameraInfo:
@@ -102,73 +106,8 @@ def _load_sam3_model():
 register_loader("depthpro", _load_depth_model)
 register_loader("sam3", _load_sam3_model)
 
-class VolumeAssistedRegressor(nn.Module):
-    """
-    Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
-    Got to stay structurally identical to train.py or the state_dict won't load
-    """
-    def __init__(self, log_target: bool = True):
-        super().__init__()
-        backbone = models.convnext_tiny(weights=None)
-        self.features = backbone.features
-        self.avgpool = backbone.avgpool
-        self.norm = backbone.classifier[0]           # LayerNorm2d(768)
-        self.log_target = log_target
-        # Standardisation stats for the log-volume scalar, filled from the train cache and saved in the state_dict so inference normalises
-        self.register_buffer("log_volume_mean", torch.zeros(1))
-        self.register_buffer("log_volume_std", torch.ones(1))
-        head_layers = [
-            nn.Linear(768 + 1, 256),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1),
-        ]
-        if not log_target:
-            head_layers.append(nn.Softplus())
-        self.head = nn.Sequential(*head_layers)
 
-    def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
-        feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)
-        v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)
-        v = (v - self.log_volume_mean) / self.log_volume_std   # whiten so the head sees the variation, not a constant offset
-        return self.head(torch.cat([feats, v], dim=1)).squeeze(1)
 
-def load_model(model_path: str) -> nn.Module:
-    """
-    Rebuild the trained model to match its checkpoint. Reads the saved args so it picks the right architecture: the plain ConvNeXt head,
-    or the volume-assisted head (norm + head, with a 769-wide first Linear because the geometric volume scalar is concatenated in)
-    """
-    checkpoint = torch.load(model_path, map_location="cpu")
-    saved_args = checkpoint.get("args", {})
-    log_target = bool(saved_args.get("log_target", False))
-    use_volume = bool(saved_args.get("use_volume", False))
-
-    if use_volume:
-        model = VolumeAssistedRegressor(log_target=log_target)
-    else:
-        head_layers = [
-            nn.Linear(768, 256),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 1)
-        ]
-        if not log_target:
-            head_layers.append(nn.Softplus())
-        model = models.convnext_tiny(weights=None)
-        model.classifier[2] = nn.Sequential(*head_layers)
-
-    model.load_state_dict(checkpoint["state_dict"])
-    model._log_target = log_target
-    model._use_volume = use_volume  # stash so the endpoint knows whether to feed the scalar
-    return model.eval()
-
-register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
-
-_rgb_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
 
 def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int) -> CameraInfo:
     """
@@ -216,88 +155,6 @@ def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int
     )
 
 
-def fit_support_plane(
-        depth_map: np.ndarray,
-        food_mask: np.ndarray,
-        image_info: CameraInfo,
-        inlier_thresh_m: float = 0.006,
-        ransac_iters: int = 250,
-        max_points: int = 8000,
-) -> tuple[np.ndarray, np.ndarray, float]:
-    """
-    Fits the supporting surface as a 3D plane, referenced to a local ring of background around the
-    food rather than the whole scene.
-
-    Sampling every non-food pixel lets RANSAC lock onto the far table/floor receding away in a casual photo -> deep, tilted, only ~half the points as inliers,
-    and every food pixel floats several cm above it. A ring hugging the food references height to the surface the food actually sits on.
-
-    Ring = (food dilated by ring_px) minus food, intersected with valid background. Falls back to full background if the ring comes out too thin (food fills the frame / runs off edges)
-    :return: (unit normal pointing back toward the camera, a point on the plane, inlier_ratio)
-    """
-    fx, fy, cx, cy = image_info.fx, image_info.fy, image_info.cx, image_info.cy
-
-    valid = (depth_map > 0.1) & (depth_map < 5.0)
-    food = food_mask > 0
-
-    # Ring width scales with the food's own size (a band ~10% of its extent), clamped for cost
-    ring_px = int(np.clip(0.10 * np.sqrt(max(int(food.sum()), 1)), 25, 150))
-    ring = cv2.dilate(food.astype(np.uint8), np.ones((ring_px, ring_px), np.uint8)).astype(bool)
-    ring = ring & ~food & valid
-
-    ys, xs = np.where(ring)
-    if len(xs) < 200:
-        ys, xs = np.where((~food) & valid)
-        logger.warning(f"  Plane | ring too thin ({len(xs)} px), falling back to full background")
-    else:
-        logger.info(f"  Plane | using local ring of {len(xs)} px (ring_px={ring_px})")
-
-    if len(xs) < 100:
-        z = float(np.median(depth_map[~food])) if np.any(~food) else float(np.median(depth_map))
-        logger.warning(f"  Plane | <100 usable bg px, falling back to flat plane at {z:.3f}m")
-        return np.array([0.0, 0.0, -1.0]), np.array([0.0, 0.0, z]), 0.0
-
-    # Back-project the ring pixels to 3D (metres)
-    z = depth_map[ys, xs].astype(np.float64)
-    x = (xs - cx) * z / fx
-    y = (ys - cy) * z / fy
-    pts = np.stack([x, y, z], axis=1)
-
-    if len(pts) > max_points:
-        pts = pts[np.random.default_rng(0).choice(len(pts), max_points, replace=False)]
-
-    rng = np.random.default_rng(0)
-    best_inliers, best_n = None, None
-    for _ in range(ransac_iters):
-        s = pts[rng.choice(len(pts), 3, replace=False)]
-        n = np.cross(s[1] - s[0], s[2] - s[0])
-        norm = np.linalg.norm(n)
-        if norm < 1e-9:
-            continue
-        n = n / norm
-        dist = np.abs((pts - s[0]) @ n)
-        inliers = dist < inlier_thresh_m
-        if best_inliers is None or inliers.sum() > best_inliers.sum():
-            best_inliers, best_n = inliers, n
-
-    # Refit on the inlier set via SVD -> least-squares plane, steadier than the 3-point fit
-    inlier_pts = pts[best_inliers]
-    centroid = inlier_pts.mean(axis=0)
-    _, _, vh = np.linalg.svd(inlier_pts - centroid)
-    n = vh[-1] / np.linalg.norm(vh[-1])
-
-    # Orient the normal back toward the camera (origin) so food ABOVE the plate reads positive
-    if n @ centroid > 0:
-        n = -n
-
-    inlier_ratio = float(best_inliers.mean())
-    logger.info(
-        f"  Plane | fitted on {len(inlier_pts)}/{len(pts)} ring pts (inliers={inlier_ratio:.2f})  "
-        f"normal=[{n[0]:.2f}, {n[1]:.2f}, {n[2]:.2f}]  "
-        f"tilt={np.degrees(np.arccos(min(abs(n[2]), 1.0))):.1f}deg off camera axis"
-    )
-    return n, centroid, inlier_ratio
-
-
 def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
     """
     Predict metric depth map using DepthPro, upsampled to original image resolution.
@@ -337,85 +194,6 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
 
     depth_map = np.clip(depth_map, 0.1, 5.0)
     return depth_map, focal_length_px
-
-def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = None) -> str:
-    """
-    Render depth map and optionally input image side-by-side as base64 PNG.
-    """
-    n_panels = 2 if pil_image is not None else 1
-    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5), dpi=100)
-
-    if n_panels == 1:
-        axes = [axes]
-
-    if pil_image is not None:
-        axes[0].imshow(pil_image)
-        axes[0].set_title("Input image", fontsize=11)
-        axes[0].axis("off")
-
-    im = axes[-1].imshow(depth_map, cmap="plasma", vmin=depth_map.min(), vmax=depth_map.max())
-    axes[-1].set_title("Predicted depth (m)", fontsize=11)
-    axes[-1].axis("off")
-
-    cbar = fig.colorbar(im, ax=axes[-1], fraction=0.046, pad=0.04)
-    cbar.set_label("metres", fontsize=9)
-    cbar.ax.tick_params(labelsize=8)
-
-    plt.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)  # prevent memory leak
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("utf-8")
-
-
-def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores: list[float]) -> str:
-    """
-    Render input image with SAM food mask overlay and confidence label as base64 PNG.
-    """
-    import matplotlib.patches as mpatches
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=100)
-
-    axes[0].imshow(pil_image)
-    axes[0].set_title("Input image", fontsize=11)
-    axes[0].axis("off")
-
-    axes[1].imshow(pil_image)
-
-    # Green mask overlay at 45% opacity
-    rgba_mask = np.zeros((*food_mask.shape, 4), dtype=np.float32)
-    rgba_mask[food_mask.astype(bool)] = [0.0, 0.85, 0.3, 0.45]
-    axes[1].imshow(rgba_mask)
-
-    # Confidence label derived from mean score of detected instances
-    if scores:
-        mean_score = float(np.mean(scores))
-        confidence_label = (
-            "High" if mean_score >= 0.75 else
-            "Medium" if mean_score >= 0.50 else
-            "Low"
-        )
-        color = "#22c55e" if mean_score >= 0.75 else "#f59e0b" if mean_score >= 0.50 else "#ef4444"
-        n_instances = len(scores)
-        label_text = f"Confidence: {confidence_label} ({mean_score:.2f})  |  Instances: {n_instances}"
-    else:
-        label_text = "Confidence: N/A  |  Instances: 0 (fallback mask)"
-        color = "#6b7280"
-
-    patch = mpatches.Patch(facecolor="#00d94f", edgecolor="white", linewidth=1.5, label="Food mask")
-    axes[1].legend(handles=[patch], loc="lower left", fontsize=9, framealpha=0.75, facecolor="#1e1e1e", labelcolor="white")
-    axes[1].set_title(label_text, fontsize=10, color=color, fontweight="bold")
-    axes[1].axis("off")
-
-    plt.suptitle("SAM 3 Food Segmentation", fontsize=13, fontweight="bold", y=1.01)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode("utf-8")
 
 
 def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float], list[np.ndarray]]:
@@ -491,6 +269,88 @@ def estimate_plate_depth(depth_map, food_mask) -> float:
     return plate_depth
 
 
+def fit_support_plane(
+        depth_map: np.ndarray,
+        food_mask: np.ndarray,
+        image_info: CameraInfo,
+        inlier_thresh_m: float = 0.006,
+        ransac_iters: int = 250,
+        max_points: int = 8000
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """
+    Fits the supporting surface as a 3D plane, referenced to a local ring of background around the
+    food rather than the whole scene.
+
+    Sampling every non-food pixel lets RANSAC lock onto the far table/floor receding away in a casual photo -> deep, tilted, only ~half the points as inliers,
+    and every food pixel floats several cm above it. A ring hugging the food references height to the surface the food actually sits on.
+
+    Ring = (food dilated by ring_px) minus food, intersected with valid background. Falls back to full background if the ring comes out too thin (food fills the frame / runs off edges)
+    :return: (unit normal pointing back toward the camera, a point on the plane, inlier_ratio)
+    """
+    fx, fy, cx, cy = image_info.fx, image_info.fy, image_info.cx, image_info.cy
+
+    valid = (depth_map > 0.1) & (depth_map < 5.0)
+    food = food_mask > 0
+
+    # Ring width scales with the food's own size (a band ~10% of its extent), clamped for cost
+    ring_px = int(np.clip(0.10 * np.sqrt(max(int(food.sum()), 1)), 25, 150))
+    ring = cv2.dilate(food.astype(np.uint8), np.ones((ring_px, ring_px), np.uint8)).astype(bool)
+    ring = ring & ~food & valid
+
+    ys, xs = np.where(ring)
+    if len(xs) < 200:
+        ys, xs = np.where((~food) & valid)
+        logger.warning(f"  Plane | ring too thin ({len(xs)} px), falling back to full background")
+    else:
+        logger.info(f"  Plane | using local ring of {len(xs)} px (ring_px={ring_px})")
+
+    if len(xs) < 100:
+        z = float(np.median(depth_map[~food])) if np.any(~food) else float(np.median(depth_map))
+        logger.warning(f"  Plane | <100 usable bg px, falling back to flat plane at {z:.3f}m")
+        return np.array([0.0, 0.0, -1.0]), np.array([0.0, 0.0, z]), 0.0
+
+    # Back-project the ring pixels to 3D (metres)
+    z = depth_map[ys, xs].astype(np.float64)
+    x = (xs - cx) * z / fx
+    y = (ys - cy) * z / fy
+    pts = np.stack([x, y, z], axis=1)
+
+    if len(pts) > max_points:
+        pts = pts[np.random.default_rng(0).choice(len(pts), max_points, replace=False)]
+
+    rng = np.random.default_rng(0)
+    best_inliers = None
+    for _ in range(ransac_iters):
+        s = pts[rng.choice(len(pts), 3, replace=False)]
+        n = np.cross(s[1] - s[0], s[2] - s[0])
+        norm = np.linalg.norm(n)
+        if norm < 1e-9:
+            continue
+        n = n / norm
+        dist = np.abs((pts - s[0]) @ n)
+        inliers = dist < inlier_thresh_m
+        if best_inliers is None or inliers.sum() > best_inliers.sum():
+            best_inliers = inliers
+
+    # Refit on the inlier set via SVD -> least-squares plane, steadier than the 3-point fit
+    inlier_pts = pts[best_inliers]
+    centroid = inlier_pts.mean(axis=0)
+    _, _, vh = np.linalg.svd(inlier_pts - centroid)
+    n = vh[-1] / np.linalg.norm(vh[-1])
+
+    # Orient the normal back toward the camera (origin) so food ABOVE the plate reads positive
+    if n @ centroid > 0:
+        n = -n
+
+    inlier_ratio = float(best_inliers.mean())
+    logger.info(
+        f"  Plane | fitted on {len(inlier_pts)}/{len(pts)} ring pts (inliers={inlier_ratio:.2f})  "
+        f"normal=[{n[0]:.2f}, {n[1]:.2f}, {n[2]:.2f}]  "
+        f"tilt={np.degrees(np.arccos(min(abs(n[2]), 1.0))):.1f}deg off camera axis"
+    )
+    return n, centroid, inlier_ratio
+
+
 def compute_volume(
         depth_map: np.ndarray,
         food_mask: np.ndarray,
@@ -564,8 +424,87 @@ def compute_volume(
         clipped_high_pct, geometry_confidence
         )
 
-@app.post("/api/v1/estimate-volume", response_model=VolumeEstimateResponse)
-async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateResponse:
+
+def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = None) -> str:
+    """Render depth map and optionally input image side-by-side as base64 PNG"""
+    n_panels = 2 if pil_image is not None else 1
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5), dpi=100)
+
+    if n_panels == 1:
+        axes = [axes]
+
+    if pil_image is not None:
+        axes[0].imshow(pil_image)
+        axes[0].set_title("Input image", fontsize=11)
+        axes[0].axis("off")
+
+    im = axes[-1].imshow(depth_map, cmap="plasma", vmin=depth_map.min(), vmax=depth_map.max())
+    axes[-1].set_title("Predicted depth (m)", fontsize=11)
+    axes[-1].axis("off")
+
+    cbar = fig.colorbar(im, ax=axes[-1], fraction=0.046, pad=0.04)
+    cbar.set_label("metres", fontsize=9)
+    cbar.ax.tick_params(labelsize=8)
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    plt.close(fig)  # prevent memory leak
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
+def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores: list[float]) -> str:
+    """Render input image with SAM food mask overlay and confidence label as base64 PNG"""
+    import matplotlib.patches as mpatches
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=100)
+
+    axes[0].imshow(pil_image)
+    axes[0].set_title("Input image", fontsize=11)
+    axes[0].axis("off")
+
+    axes[1].imshow(pil_image)
+
+    # Green mask overlay at 45% opacity
+    rgba_mask = np.zeros((*food_mask.shape, 4), dtype=np.float32)
+    rgba_mask[food_mask.astype(bool)] = [0.0, 0.85, 0.3, 0.45]
+    axes[1].imshow(rgba_mask)
+
+    # Confidence label derived from mean score of detected instances
+    if scores:
+        mean_score = float(np.mean(scores))
+        confidence_label = (
+            "High" if mean_score >= 0.75 else
+            "Medium" if mean_score >= 0.50 else
+            "Low"
+        )
+        color = "#22c55e" if mean_score >= 0.75 else "#f59e0b" if mean_score >= 0.50 else "#ef4444"
+        n_instances = len(scores)
+        label_text = f"Confidence: {confidence_label} ({mean_score:.2f})  |  Instances: {n_instances}"
+    else:
+        label_text = "Confidence: N/A  |  Instances: 0 (fallback mask)"
+        color = "#6b7280"
+
+    patch = mpatches.Patch(facecolor="#00d94f", edgecolor="white", linewidth=1.5, label="Food mask")
+    axes[1].legend(handles=[patch], loc="lower left", fontsize=9, framealpha=0.75, facecolor="#1e1e1e", labelcolor="white")
+    axes[1].set_title(label_text, fontsize=10, color=color, fontweight="bold")
+    axes[1].axis("off")
+
+    plt.suptitle("SAM 3 Food Segmentation", fontsize=13, fontweight="bold", y=1.01)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
+# Approach A - Monocular geometric
+# Single RGB image -> metric depth + food mask -> support plane -> height-field integral. Only geometry, no learned volume regression
+@app.post("/api/v1/estimate-volume", response_model=EstimationResponse)
+async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline:
     1. Extract camera intrinsics from EXIF
@@ -634,7 +573,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     logger.info(f"[D] Plate depth: {plate_depth_m:.3f}m ({time.perf_counter() - t_plate_depth_start:.3f}s) (deprecated now with plane fitting)")
 
     t_volume_start = time.perf_counter()
-    plane_n, plane_p0, plane_inliers = fit_support_plane(depth_map, food_mask, image_info)
+    plane_n, plane_p0, _ = fit_support_plane(depth_map, food_mask, image_info)
     volume_res = compute_volume(depth_map, food_mask, image_info, plane_n, plane_p0)
     logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
 
@@ -663,17 +602,94 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
     t_total = time.perf_counter() - t_start
     logger.info(f"Total pipeline time: {t_total:.3f}s")
 
-    return VolumeEstimateResponse(
+    return EstimationResponse(
+        approach="monocular-geometric",
         volume_cm3=volume_res.volume_cm3,
+        mass_g=None,
         confidence=confidence,
-        food_pixel_count=food_pixel_count,
-        food_coverage_pct=food_coverage_pct,
-        max_food_height_cm=volume_res.max_food_height_cm,
-        mean_food_height_cm=volume_res.mean_food_height_cm,
-        plate_depth_m=volume_res.plate_depth_m,
-        intrinsics_source=image_info.source,
-        debug_overlay_b64=seg_b64
+        diagnostics={
+            "food_pixel_count": food_pixel_count,
+            "food_coverage_pct": food_coverage_pct,
+            "max_food_height_cm": volume_res.max_food_height_cm,
+            "mean_food_height_cm": volume_res.mean_food_height_cm,
+            "plate_depth_m": volume_res.plate_depth_m,
+            "intrinsics_source": image_info.source,
+            "debug_overlay_b64": seg_b64
+        },
     )
+
+
+# Approach B - Deep learning
+# Single RGB image -> trained ConvNeXt regressor -> mass (g). When the checkpoint was trained with --use_volume, the geometric approach above is reused to compute the
+# volume scalar the head expects, mirroring how cache_volume_scalars.py builds it
+class VolumeAssistedRegressor(nn.Module):
+    """
+    Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
+    Got to stay structurally identical to train.py or the state_dict won't load
+    """
+    def __init__(self, log_target: bool = True):
+        super().__init__()
+        backbone = models.convnext_tiny(weights=None)
+        self.features = backbone.features
+        self.avgpool = backbone.avgpool
+        self.norm = backbone.classifier[0]           # LayerNorm2d(768)
+        self.log_target = log_target
+        # Standardisation stats for the log-volume scalar, filled from the train cache and saved in the state_dict so inference normalises
+        self.register_buffer("log_volume_mean", torch.zeros(1))
+        self.register_buffer("log_volume_std", torch.ones(1))
+        head_layers = [
+            nn.Linear(768 + 1, 256),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1),
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        self.head = nn.Sequential(*head_layers)
+
+    def forward(self, rgb: torch.Tensor, volume_cm3: torch.Tensor) -> torch.Tensor:
+        feats = torch.flatten(self.norm(self.avgpool(self.features(rgb))), 1)
+        v = torch.log(volume_cm3.clamp(min=1.0)).unsqueeze(1)
+        v = (v - self.log_volume_mean) / self.log_volume_std   # whiten so the head sees the variation, not a constant offset
+        return self.head(torch.cat([feats, v], dim=1)).squeeze(1)
+
+def load_model(model_path: str) -> nn.Module:
+    """
+    Rebuild the trained model to match its checkpoint. Reads the saved args so it picks the right architecture: the plain ConvNeXt head,
+    or the volume-assisted head (norm + head, with a 769-wide first Linear because the geometric volume scalar is concatenated in)
+    """
+    checkpoint = torch.load(model_path, map_location="cpu")
+    saved_args = checkpoint.get("args", {})
+    log_target = bool(saved_args.get("log_target", False))
+    use_volume = bool(saved_args.get("use_volume", False))
+
+    if use_volume:
+        model = VolumeAssistedRegressor(log_target=log_target)
+    else:
+        head_layers = [
+            nn.Linear(768, 256),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 1)
+        ]
+        if not log_target:
+            head_layers.append(nn.Softplus())
+        model = models.convnext_tiny(weights=None)
+        model.classifier[2] = nn.Sequential(*head_layers)
+
+    model.load_state_dict(checkpoint["state_dict"])
+    model._log_target = log_target
+    model._use_volume = use_volume  # stash so the endpoint knows whether to feed the scalar
+    return model.eval()
+
+register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
+
+_rgb_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
 
 @torch.no_grad()
 def run_custom_model(image: Image.Image) -> float:
@@ -718,8 +734,8 @@ def run_custom_model(image: Image.Image) -> float:
     return out
 
 
-@app.post("/api/v1/estimate-volume-dl")
-async def volume_estimation_dl(file: UploadFile = File(...)):
+@app.post("/api/v1/estimate-volume-dl", response_model=EstimationResponse)
+async def volume_estimation_dl(file: UploadFile = File(...)) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline using deep learning model.
     """
@@ -749,4 +765,10 @@ async def volume_estimation_dl(file: UploadFile = File(...)):
 
     logger.info(f"Model estimated mass: {mass:.2f} g")
     logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")
-    return {"mass_g": round(mass, 2)}
+    return EstimationResponse(
+        approach="deep-learning",
+        volume_cm3=None,
+        mass_g=round(mass, 2),
+        confidence=None,
+        diagnostics={}
+    )
