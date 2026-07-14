@@ -42,6 +42,8 @@ RELIEF_MEAN_M = 0.010
 RELIEF_STD_M = 0.020
 
 
+# Data pipeline - augmentation, relief, dataset, transforms and target/volume lookups
+
 def depth_to_relief_channel(depth_m: np.ndarray) -> np.ndarray:
     """Convert a metric depth map to a table-relative RELIEF map (metres above the support surface)"""
     valid = depth_m[depth_m > 0]
@@ -130,6 +132,7 @@ def apply_random_tilt(rgb: np.ndarray, depth: np.ndarray | None = None):
 
 def is_valid_file(path: Path) -> bool:
     return path.exists() and path.stat().st_size > 0
+
 
 class Nutrition5KDataset(Dataset):
     """
@@ -281,6 +284,104 @@ class Nutrition5KDataset(Dataset):
         }
 
 
+def get_transforms(img_size: int = 224):
+    """
+    Val/test: deterministic resize + normalise only.
+    Train: spatial and photometric augmentation is applied in __getitem__
+    so it can operate on both RGB and depth simultaneously.
+    """
+    train_rgb_finalise = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        ),
+    ])
+
+    val_transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        ),
+    ])
+
+    return train_rgb_finalise, val_transform
+
+
+def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose, A.Compose]:
+    """
+    Spatial augmentation: applied to overhead and side views, side view doesn't get vertical flip
+    Photometric augmentation: applied to both overhead and side views
+    """
+    spatial_overhead = A.Compose([
+        A.Resize(img_size, img_size),
+        A.HorizontalFlip(p=0.5),
+        A.VerticalFlip(p=0.1),
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5),
+    ], additional_targets={"depth": "image"})
+
+    spatial_side = A.Compose([
+        A.Resize(img_size, img_size),
+        A.HorizontalFlip(p=0.5),
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5),
+    ], additional_targets={"depth": "image"})
+
+    photometric = A.Compose([
+        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
+        A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
+        A.GaussianBlur(blur_limit=(3, 7), p=0.2),
+        A.GaussNoise(std_range=(5.0 / 255.0, 30.0 / 255.0), p=0.2),  # was (…, 255/255): std up to full range wiped the image
+    ])
+
+    return spatial_overhead, spatial_side, photometric
+
+
+def worker_init_fn(worker_id: int) -> None:
+    "Reseed numpy per DataLoader worker to ensure the random view/frame selection is actually independent"
+    worker_seed = (torch.initial_seed() + worker_id) % (2 ** 32)
+    np.random.seed(worker_seed)
+
+
+def build_target_lookup(args, dish_ids, mass_g) -> tuple[dict[str, float], str]:
+    """Return (dish_id -> target, unit_label) according to --target."""
+    mass_min_g, mass_max_g = 20.0, 1500.0
+
+    if args.target == "mass":
+        values = mass_g
+        unit = "g"
+    else:  # volume_density: convert mass to a volume proxy via average food density
+        values = mass_g / args.density
+        unit = "cm3"
+
+    lookup = {
+        d: float(v)
+        for d, m, v in zip(dish_ids, mass_g, values)
+        if pd.notna(m) and mass_min_g <= m <= mass_max_g
+    }
+    n_filtered = len(dish_ids) - len(lookup)
+    logger.info(
+        f"Target={args.target} [{unit}]: {len(lookup)} dishes after filtering "
+        f"({n_filtered} removed outside {mass_min_g}–{mass_max_g}g range)"
+    )
+    return lookup, unit
+
+
+def load_volume_cache(path: str) -> dict[str, float]:
+    """dish_id -> geometric volume scalar (cm^3), from cache_volume_scalars.py output"""
+    df = pd.read_csv(path)
+    lookup = {
+        str(r.dish_id): float(r.volume_cm3)
+        for r in df.itertuples(index=False)
+        if pd.notna(r.volume_cm3) and float(r.volume_cm3) > 0
+    }
+    logger.info(f"Volume cache: {len(lookup)} dishes with a usable scalar from {path}")
+    return lookup
+
+
+# Model - ConvNeXt-Tiny regression head, plain and volume-assisted (+ optional 4ch stem)
+
 class VolumeAssistedRegressor(nn.Module):
     """
     Nutrition5k's volume-assisted head (Thames et al., CVPR 2021): ConvNeXt features from the RGB image are concatenated with
@@ -406,58 +507,9 @@ def split_backbone_head_params(model: nn.Module) -> tuple[list, list]:
     return backbone, head
 
 
-def get_transforms(img_size: int = 224):
-    """
-    Val/test: deterministic resize + normalise only.
-    Train: spatial and photometric augmentation is applied in __getitem__
-    so it can operate on both RGB and depth simultaneously.
-    """
-    train_rgb_finalise = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        ),
-    ])
-
-    val_transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        ),
-    ])
-
-    return train_rgb_finalise, val_transform
-
-def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose, A.Compose]:
-    """
-    Spatial augmentation: applied to overhead and side views, side view doesn't get vertical flip
-    Photometric augmentation: applied to both overhead and side views
-    """
-    spatial_overhead = A.Compose([
-        A.Resize(img_size, img_size),
-        A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.1),
-        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5),
-    ], additional_targets={"depth": "image"})
-
-    spatial_side = A.Compose([
-        A.Resize(img_size, img_size),
-        A.HorizontalFlip(p=0.5),
-        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5),
-    ], additional_targets={"depth": "image"})
-
-    photometric = A.Compose([
-        A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
-        A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
-        A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-        A.GaussNoise(std_range=(5.0 / 255.0, 30.0 / 255.0), p=0.2),  # was (…, 255/255): std up to full range wiped the image
-    ])
-
-    return spatial_overhead, spatial_side, photometric
-
+# =============================================================================
+# Metrics
+# =============================================================================
 
 def get_mean_absolute_percentage_error(pred: torch.Tensor, target: torch.Tensor) -> float:
     """MAPE with a 1-unit epsilon to avoid division by very small targets."""
@@ -477,6 +529,8 @@ def _to_real(model_out: torch.Tensor, log_target: bool) -> torch.Tensor:
         return torch.exp(model_out)
     return model_out
 
+
+# Training / evaluation loops
 
 def train_one_epoch(
         model: nn.Module,
@@ -535,6 +589,7 @@ def train_one_epoch(
         "time": time.perf_counter() - t_start
     }
 
+
 @torch.no_grad()
 def validate(
         model: nn.Module,
@@ -583,47 +638,7 @@ def validate(
     }
 
 
-def worker_init_fn(worker_id: int) -> None:
-    "Reseed numpy per DataLoader worker to ensure the random view/frame selection is actually independent"
-    worker_seed = (torch.initial_seed() + worker_id) % (2 ** 32)
-    np.random.seed(worker_seed)
-
-
-def build_target_lookup(args, dish_ids, mass_g) -> tuple[dict[str, float], str]:
-    """Return (dish_id -> target, unit_label) according to --target."""
-    mass_min_g, mass_max_g = 20.0, 1500.0
-
-    if args.target == "mass":
-        values = mass_g
-        unit = "g"
-    else:  # volume_density: convert mass to a volume proxy via average food density
-        values = mass_g / args.density
-        unit = "cm3"
-
-    lookup = {
-        d: float(v)
-        for d, m, v in zip(dish_ids, mass_g, values)
-        if pd.notna(m) and mass_min_g <= m <= mass_max_g
-    }
-    n_filtered = len(dish_ids) - len(lookup)
-    logger.info(
-        f"Target={args.target} [{unit}]: {len(lookup)} dishes after filtering "
-        f"({n_filtered} removed outside {mass_min_g}–{mass_max_g}g range)"
-    )
-    return lookup, unit
-
-
-def load_volume_cache(path: str) -> dict[str, float]:
-    """dish_id -> geometric volume scalar (cm^3), from cache_volume_scalars.py output"""
-    df = pd.read_csv(path)
-    lookup = {
-        str(r.dish_id): float(r.volume_cm3)
-        for r in df.itertuples(index=False)
-        if pd.notna(r.volume_cm3) and float(r.volume_cm3) > 0
-    }
-    logger.info(f"Volume cache: {len(lookup)} dishes with a usable scalar from {path}")
-    return lookup
-
+# Orchestration
 
 def main(args):
     if torch.cuda.is_available():
@@ -824,9 +839,8 @@ def main(args):
     logger.info(f"Test | mape={test_metrics['mape']:.1f}%  mae={test_metrics['mae']:.1f}{unit}  loss={test_metrics['loss']:.4f}")
     logger.info(f"Best checkpoint: {best_ckpt}")
 
+
 if __name__ == "__main__":
-    #/uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset
-    # /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6
     parser = argparse.ArgumentParser(description="ConvNeXt-Tiny mass/volume regression - Nutrition5K")
     parser.add_argument("--data_root", type=str, default="./data/nutrition5k_dataset")
     parser.add_argument("--metadata", type=str, default="./data/dish_metadata_cafe1.csv")
