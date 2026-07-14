@@ -32,6 +32,9 @@ from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Pr
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_LONG_EDGE = 1280 # px
 MAX_FOOD_HEIGHT_M = 0.15
+RELIEF_MEAN_M = 0.010
+RELIEF_STD_M = 0.020
+NOMINAL_FOOD_HEIGHT_CM = 2.0 # crude portion-height prior for the low-confidence fallback
 
 @dataclass
 class VolumeEstimateResponse:
@@ -107,9 +110,11 @@ class VolumeAssistedRegressor(nn.Module):
     Mirror of the training-time model: ConvNeXt features + a log-volume scalar concatenated before the head.
     Got to stay structurally identical to train.py or the state_dict won't load
     """
-    def __init__(self, log_target: bool = True):
+    def __init__(self, log_target: bool = True, depth_channel: bool = False):
         super().__init__()
         backbone = models.convnext_tiny(weights=None)
+        if depth_channel:
+            inflate_stem_to_4ch(backbone)
         self.features = backbone.features
         self.avgpool = backbone.avgpool
         self.norm = backbone.classifier[0]           # LayerNorm2d(768)
@@ -143,23 +148,28 @@ def load_model(model_path: str) -> nn.Module:
     log_target = bool(saved_args.get("log_target", False))
     use_volume = bool(saved_args.get("use_volume", False))
 
+    depth_channel = bool(saved_args.get("depth_channel", False))
+
     if use_volume:
-        model = VolumeAssistedRegressor(log_target=log_target)
+        model = VolumeAssistedRegressor(log_target=log_target, depth_channel=depth_channel)
     else:
         head_layers = [
             nn.Linear(768, 256),
             nn.GELU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 1)
+            nn.Linear(256, 1),
         ]
         if not log_target:
             head_layers.append(nn.Softplus())
         model = models.convnext_tiny(weights=None)
+        if depth_channel:
+            inflate_stem_to_4ch(model)
         model.classifier[2] = nn.Sequential(*head_layers)
 
     model.load_state_dict(checkpoint["state_dict"])
     model._log_target = log_target
-    model._use_volume = use_volume  # stash so the endpoint knows whether to feed the scalar
+    model._use_volume = use_volume
+    model._depth_channel = depth_channel
     return model.eval()
 
 register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
@@ -169,6 +179,39 @@ _rgb_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
+
+def depth_to_relief_channel(depth_m: np.ndarray) -> np.ndarray:
+    """Metric depth -> table-relative relief (m above support). Mirrors train.py... the background median cancels the RealSense<->DepthPro offset."""
+    valid = depth_m[depth_m > 0]
+    plate_ref_m = float(np.median(valid)) if valid.size else 0.0
+    return np.clip(plate_ref_m - depth_m, 0.0, MAX_FOOD_HEIGHT_M).astype(np.float32)
+
+
+def inflate_stem_to_4ch(model: nn.Module) -> None:
+    """Swap ConvNeXt's stem to 4 channels so a --depth_channel checkpoint loads"""
+    old_stem = model.features[0][0]
+    new_stem = nn.Conv2d(4, old_stem.out_channels, kernel_size=old_stem.kernel_size, stride=old_stem.stride)
+    with torch.no_grad():
+        new_stem.weight[:, :3] = old_stem.weight
+        new_stem.weight[:, 3:4] = old_stem.weight.mean(dim=1, keepdim=True)
+        new_stem.bias.copy_(old_stem.bias)
+    model.features[0][0] = new_stem
+
+
+def area_based_volume_proxy(depth_map: np.ndarray, food_mask: np.ndarray, cam: CameraInfo) -> float:
+    """
+    Portion-sensitive volume proxy for when the plane-fit geometry is untrusted: metric food footprint (sum of per-pixel areas) times
+    a nominal food height
+    """
+    food_px = food_mask > 0
+    if not np.any(food_px):
+        return 0.0
+    ys, xs = np.where(food_px)
+    z = depth_map[ys, xs].astype(np.float64)
+    pixel_area_m2 = (z / cam.fx) * (z / cam.fy)
+    area_cm2 = float(np.sum(pixel_area_m2)) * 1e4  # m^2 -> cm^2
+    return area_cm2 * NOMINAL_FOOD_HEIGHT_CM
+
 
 def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int) -> CameraInfo:
     """
@@ -678,27 +721,34 @@ async def volume_estimation(file: UploadFile = File(...)) -> VolumeEstimateRespo
 @torch.no_grad()
 def run_custom_model(image: Image.Image) -> float:
     """
-    Estimate mass (g) using the custom trained model. If the model was trained with
-    --use_volume, compute the geometric volume scalar the same way the cache did and feed it in
+    Estimate mass (g) with the custom trained model. Builds whatever extra inputs the checkpoint was trained with...
+    a metric relief channel (--depth_channel) and/or a geometric volume scalar (--use_volume)
     """
-    tensor = _rgb_transform(image).unsqueeze(0)
+    tensor = _rgb_transform(image).unsqueeze(0)  # (1, 3, 224, 224)
 
-    # Work out whether we need the scalar. Peeking at the loader's flag would build it, so load once, read the flag, and compute the scalar BEFORE
-    # the final fetch, since estimate_depth/segment_food pull other models onto cuda and would otherwise evict custom_volume back to cpu mid-call.
     model = get_model("custom_volume")
+    needs_depth = getattr(model, "_use_volume", False) or getattr(model, "_depth_channel", False)
+
+    depth_map = focal_px = mask = None
+    if needs_depth:
+        depth_map, focal_px = estimate_depth(image)
+        mask, _, _ = segment_food(image)
+
+    if getattr(model, "_depth_channel", False):
+        relief = depth_to_relief_channel(depth_map)
+        relief_224 = cv2.resize(relief, (224, 224), interpolation=cv2.INTER_NEAREST)
+        relief_tensor = (torch.from_numpy(relief_224)[None, None] - RELIEF_MEAN_M) / RELIEF_STD_M
+        tensor = torch.cat([tensor, relief_tensor], dim=1)  # (1, 4, 224, 224): RGB + relief
+
     volume_t = None
     if getattr(model, "_use_volume", False):
-        depth_map, focal_px = estimate_depth(image)
         w, h = image.size
-        cam = CameraInfo(fx=focal_px, fy=focal_px, cx=w / 2.0, cy=h / 2.0,
-                         image_width=w, image_height=h, source="depthpro_fov")
-        mask, _, _ = segment_food(image)
+        cam = CameraInfo(fx=focal_px, fy=focal_px, cx=w / 2.0, cy=h / 2.0, image_width=w, image_height=h, source="depthpro_fov")
         plane_n, plane_p0, _ = fit_support_plane(depth_map, mask, cam)
         vr = compute_volume(depth_map, mask, cam, plane_n, plane_p0)
-
         if vr.geometry_confidence < 0.33:
-            vol = float(torch.exp(model.log_volume_mean).item())
-            logger.warning(f"  Custom | geometry confidence {vr.geometry_confidence:.2f} -> using prior-mean volume scalar")
+            vol = area_based_volume_proxy(depth_map, mask, cam)
+            logger.warning(f"  Custom | geometry confidence {vr.geometry_confidence:.2f} -> area proxy volume {vol:.1f} cm^3")
         else:
             vol = vr.volume_cm3
         volume_t = torch.tensor([vol], dtype=torch.float32)

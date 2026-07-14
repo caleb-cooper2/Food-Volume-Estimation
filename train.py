@@ -37,22 +37,39 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 SIDE_ANGLE_PATTERN = re.compile(r"^camera_([ABCD])frame(\d{3})\.jpeg$")
+MAX_FOOD_HEIGHT_M = 0.15
+RELIEF_MEAN_M = 0.010
+RELIEF_STD_M = 0.020
 
 
-def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
-    """
-    Simulate a more realistic handheld photo by rotating the virtual camera forward about the X-axis (tilting toward the far edge of the plate).
+def depth_to_relief_channel(depth_m: np.ndarray) -> np.ndarray:
+    """Convert a metric depth map to a table-relative RELIEF map (metres above the support surface)"""
+    valid = depth_m[depth_m > 0]
+    plate_ref_m = float(np.median(valid)) if valid.size else 0.0
+    return np.clip(plate_ref_m - depth_m, 0.0, MAX_FOOD_HEIGHT_M).astype(np.float32)
 
-    Each corner of the source image is projected into 3D space, rotated, then projected back to 2D via perspective division.
-    The resulting 4-point correspondence is used to compute the warp homography.
-    """
+
+def load_overhead_relief(overhead_rgb_path: Path) -> np.ndarray:
+    """Read Nutrition5k's aligned overhead depth (depth_raw.png, 16-bit millimetres) as relief (m)"""
+    depth_path = overhead_rgb_path.with_name("depth_raw.png")
+    depth_mm = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
+    if depth_mm is None:
+        raise FileNotFoundError(f"No overhead depth at {depth_path}")
+    depth_m = depth_mm.astype(np.float32) / 1000.0
+    holes = depth_m <= 0
+    if holes.any():  # RealSense drops pixels; fill with the plate reference so relief reads ~0 there
+        depth_m[holes] = np.median(depth_m[~holes]) if (~holes).any() else 0.0
+    return depth_to_relief_channel(depth_m)
+
+
+def apply_random_tilt(rgb: np.ndarray, depth: np.ndarray | None = None):
+    """Simulate a handheld oblique photo by rotating the virtual camera forward about the X-axis."""
     tilt_deg = float(np.random.choice([0, 15, 25, 35, 45], p=[0.1, 0.2, 0.3, 0.3, 0.1]))
     if tilt_deg == 0:
-        return rgb
+        return rgb if depth is None else (rgb, depth)
 
     height, width = rgb.shape[:2]
 
-    # Project each source corner through 3D rotation and back to 2D
     source_corners = np.array([
         [0, 0],
         [width, 0],
@@ -96,12 +113,19 @@ def apply_random_tilt(rgb: np.ndarray) -> np.ndarray:
     ])
     border_fill = tuple(int(mean) for mean in border_pixels.mean(axis=0))
 
-    return cv2.warpPerspective(
+    rgb_warped = cv2.warpPerspective(
         rgb, homography, (width, height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=border_fill
+        flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=border_fill
     )
+    if depth is None:
+        return rgb_warped
+
+    # Exposed border reads as 0 relief (flat table)
+    depth_warped = cv2.warpPerspective(
+        depth, homography, (width, height),
+        flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0.0
+    )
+    return rgb_warped, depth_warped
 
 
 def is_valid_file(path: Path) -> bool:
@@ -124,6 +148,7 @@ class Nutrition5KDataset(Dataset):
             photometric_aug: A.Compose | None = None,
             augment_tilt: bool = True,
             volume_lookup: dict[str, float] | None = None,
+            depth_channel: bool = False # (overhead-only)
     ):
         self.root = Path(data_root)
         self.transform = transform
@@ -134,6 +159,7 @@ class Nutrition5KDataset(Dataset):
         self.spatial_aug_overhead = spatial_aug_overhead
         self.spatial_aug_side = spatial_aug_side
         self.photometric_aug = photometric_aug
+        self.depth_channel = depth_channel
 
         self.views: dict[str, dict] = {}
         n_with_side = 0
@@ -145,6 +171,9 @@ class Nutrition5KDataset(Dataset):
                 logger.warning(f"Skipping dish {dish_id} as it's not in the target lookup")
                 continue
             manifest = self.discover_views(dish_id)
+            if depth_channel and manifest["overhead"] is None:
+                logger.warning(f"Skipping dish {dish_id}: --depth_channel needs overhead sensor depth")
+                continue
             if manifest["overhead"] is None and not manifest["side_by_camera"]:
                 logger.warning(f"Skipping dish {dish_id} as it has no usable views")
                 continue # no usable image data, skip
@@ -169,6 +198,9 @@ class Nutrition5KDataset(Dataset):
         overhead_path = self.root / "imagery/realsense_overhead" / dish_id / "rgb.png"
         overhead = overhead_path if is_valid_file(overhead_path) else None
 
+        if overhead is not None and self.depth_channel and not is_valid_file(overhead.with_name("depth_raw.png")):
+            overhead = None
+
         side_dir = self.root / "imagery/side_angles" / dish_id
         side_by_camera: dict[str, list[Path]] = {}
         if side_dir.is_dir():
@@ -183,6 +215,9 @@ class Nutrition5KDataset(Dataset):
 
     def select_view(self, dish_id: str) -> tuple[Path, str]:
         manifest = self.views[dish_id]
+
+        if self.depth_channel:
+            return manifest["overhead"], "overhead"
 
         if self.mode != "train":
             # Deterministic pick so val/test metrics are stable and comparable across epochs
@@ -210,26 +245,37 @@ class Nutrition5KDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         dish_id = self.samples[idx]
         image_path, view_type = self.select_view(dish_id)
-
         rgb = np.array(Image.open(image_path).convert("RGB"))
+
+        relief = load_overhead_relief(image_path) if self.depth_channel else None
 
         spatial_aug = self.spatial_aug_overhead if view_type == "overhead" else self.spatial_aug_side
         if spatial_aug is not None:
-            rgb = spatial_aug(image=rgb)["image"]
+            if relief is not None:
+                augmented = spatial_aug(image=rgb, depth=relief)
+                rgb, relief = augmented["image"], augmented["depth"]
+            else:
+                rgb = spatial_aug(image=rgb)["image"]
 
         if self.photometric_aug is not None:
-            rgb = self.photometric_aug(image=rgb)["image"]
+            rgb = self.photometric_aug(image=rgb)["image"]  # photometric never touches the relief channel
 
         if self.augment_tilt and view_type == "overhead":
-            rgb = apply_random_tilt(rgb)
+            rgb, relief = apply_random_tilt(rgb, relief) if relief is not None else (apply_random_tilt(rgb), None)
 
         target = self.target_lookup[dish_id]
-        rgb_tensor = self.transform(Image.fromarray(rgb))
+        rgb_tensor = self.transform(Image.fromarray(rgb))  # (3, H, W), ImageNet-normalised
+
+        if relief is not None:
+            # val/test resize RGB via self.transform but leave relief native -> match it here
+            relief_resized = cv2.resize(relief, rgb_tensor.shape[1:][::-1], interpolation=cv2.INTER_NEAREST)
+            relief_tensor = (torch.from_numpy(relief_resized)[None] - RELIEF_MEAN_M) / RELIEF_STD_M
+            rgb_tensor = torch.cat([rgb_tensor, relief_tensor], dim=0)  # (4, H, W): RGB + relief
 
         return {
             "rgb": rgb_tensor,
             "target": torch.tensor(target, dtype=torch.float32),
-            "volume_cm3": torch.tensor(self.volume_lookup.get(dish_id, 1.0), dtype=torch.float32), # dish-level scalar, view-independent. 1.0 sentinel when no cache -> log() = 0, and it's only ever read under --use_volume anyway
+            "volume_cm3": torch.tensor(self.volume_lookup.get(dish_id, 1.0), dtype=torch.float32),
             "dish_id": dish_id,
             "view_type": view_type
         }
@@ -244,12 +290,14 @@ class VolumeAssistedRegressor(nn.Module):
     Mirrors torchvision's ConvNeXt layout (features -> avgpool -> LayerNorm2d -> flatten) so the ImageNet pretraining,
     the freeze/unfreeze phasing and the log-space read-out all still hold
     """
-    def __init__(self, freeze_backbone: bool = False, log_target: bool = True):
+    def __init__(self, freeze_backbone: bool = False, log_target: bool = True, depth_channel: bool = False):
         super().__init__()
         backbone = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
+        if depth_channel:
+            inflate_stem_to_4ch(backbone)   # stem now takes RGB + relief
         self.features = backbone.features
         self.avgpool = backbone.avgpool
-        self.norm = backbone.classifier[0] # LayerNorm2d(768), runs after avgpool
+        self.norm = backbone.classifier[0]
         self.log_target = log_target
 
         # Standardisation stats for the log-volume scalar. Without this the scalar enters the head as a
@@ -285,37 +333,39 @@ class VolumeAssistedRegressor(nn.Module):
         return self.head(torch.cat([feats, v], dim=1)).squeeze(1)      # (B,)
 
 
+def inflate_stem_to_4ch(model: nn.Module) -> None:
+    """
+    Swap ConvNeXt's 3-channel stem for a 4-channel one (RGB + relief), reusing the pretrained RGB filters and seeding the new depth filter with their mean so training starts from a sane point
+    rather than noise. Edits model.features[0][0] in place
+    """
+    old_stem = model.features[0][0]  # Conv2d(3, 96, kernel_size=4, stride=4)
+    new_stem = nn.Conv2d(4, old_stem.out_channels, kernel_size=old_stem.kernel_size, stride=old_stem.stride)
+    with torch.no_grad():
+        new_stem.weight[:, :3] = old_stem.weight
+        new_stem.weight[:, 3:4] = old_stem.weight.mean(dim=1, keepdim=True)
+        new_stem.bias.copy_(old_stem.bias)
+    model.features[0][0] = new_stem
+
+
 def build_model(
         freeze_backbone: bool = False,
         log_target: bool = True,
         head_bias_init: float | None = None,
         use_volume: bool = False,
+        depth_channel: bool = False,
 ) -> nn.Module:
-    """
-    Load pretrained ConvNeXt-Tiny and replace classification head with regression head.
-    If freeze_backbone=True, keep backbone frozen and only enable classifier gradients.
-
-    In log-space mode the head outputs an unbounded real value (interpreted as
-    log target); positivity is guaranteed by exp() at read-out, so Softplus is
-    dropped. In raw mode Softplus is kept.
-
-    head_bias_init warm-starts the final bias to the mean target (mean log-target
-    in log mode). Zeroing the final weight makes the initial prediction exactly
-    that mean, which removes the ~12,000 opening loss and the slow first epochs.
-
-    use_volume swaps in VolumeAssistedRegressor, which concatenates a geometry-derived volume
-    scalar into the head (Nutrition5k's volume-assisted trick: 18.7% -> 13.7% mass).
-    """
     if use_volume:
-        model = VolumeAssistedRegressor(freeze_backbone=freeze_backbone, log_target=log_target)
+        model = VolumeAssistedRegressor(
+            freeze_backbone=freeze_backbone, log_target=log_target, depth_channel=depth_channel
+        )
         final_linear = model.head[3]
     else:
         model = models.convnext_tiny(weights=models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1)
-
+        if depth_channel:
+            inflate_stem_to_4ch(model)
         if freeze_backbone:
             for param in model.parameters():
                 param.requires_grad = False
-
         head_layers = [
             nn.Linear(768, 256),
             nn.GELU(),
@@ -326,7 +376,6 @@ def build_model(
             head_layers.append(nn.Softplus())
         model.classifier[2] = nn.Sequential(*head_layers)
         final_linear = model.classifier[2][3]
-
         for param in model.classifier.parameters():
             param.requires_grad = True
 
@@ -392,13 +441,13 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose,
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.1),
         A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5),
-    ])
+    ], additional_targets={"depth": "image"})
 
     spatial_side = A.Compose([
         A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
         A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5),
-    ])
+    ], additional_targets={"depth": "image"})
 
     photometric = A.Compose([
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
@@ -653,6 +702,7 @@ def main(args):
         photometric_aug=photometric_aug,
         augment_tilt=True,
         volume_lookup=volume_lookup,
+        depth_channel=args.depth_channel
     )
     val_set = Nutrition5KDataset(
         data_root=args.data_root,
@@ -661,6 +711,7 @@ def main(args):
         transform=val_transform,
         mode="val",
         volume_lookup=volume_lookup,
+        depth_channel=args.depth_channel
     )
     test_set = Nutrition5KDataset(
         data_root=args.data_root,
@@ -669,6 +720,7 @@ def main(args):
         transform=val_transform,
         mode="test",
         volume_lookup=volume_lookup,
+        depth_channel=args.depth_channel
     )
 
 
@@ -695,6 +747,7 @@ def main(args):
         log_target=args.log_target,
         head_bias_init=head_bias_init,
         use_volume=args.use_volume,
+        depth_channel=args.depth_channel
     ).to(device)
 
     # Whiten the volume scalar from the TRAIN split only (no val/test leakage) so the head reads its
@@ -794,6 +847,7 @@ if __name__ == "__main__":
                         help="Horizontal-flip test-time augmentation at val/test.")
     parser.add_argument("--use_volume", action=argparse.BooleanOptionalAction, default=False) # Volume-assisted regression: concat a cached geometric volume scalar into the head (Nutrition5k, Thames et al. 2021)
     parser.add_argument("--volume_cache", type=str, default="./data/volume_scalars.csv") # needed if we do --use_volume
+    parser.add_argument("--depth_channel", action=argparse.BooleanOptionalAction, default=False)
 
     args = parser.parse_args()
     main(args)
