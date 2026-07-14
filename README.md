@@ -10,7 +10,7 @@ Three approaches have been investigated, each as its own endpoint:
 - **Deep learning** (`main.py`) -> single RGB image through the ConvNeXt-Tiny model trained on Nutrition5k (see [Training](#training-volume-estimation-model)). Predicts mass directly
 - **Multi-view** (`multi-image.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a watertight mesh volume per food instance (or the fused multi-view blob when per-instance meshing collapses)
 
-The first two live in `main.py` (they share the depth/segmentation/geometry core); the multi-view route lives in `multi-image.py`. All three return the same [response structure](#api).
+The first two live in `main.py` (they share the depth/segmentation/geometry core logic) while the multi-view route lives in `multi-image.py`. All three return the same [response structure](#api)
 
 ## Prerequisites
 - Python 3.10+
