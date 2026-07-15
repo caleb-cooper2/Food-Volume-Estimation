@@ -130,7 +130,7 @@ def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", t
 
     results = sam3_processor.post_process_instance_segmentation(
         outputs, threshold=threshold, mask_threshold=0.5,
-        target_sizes=inputs.get("original_sizes").tolist(),
+        target_sizes=inputs.get("original_sizes").tolist()
     )[0]
 
     masks, scores = results["masks"], results["scores"]
@@ -146,39 +146,39 @@ def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", t
 def measure_mask_endpoints(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Find the two tip pixels of an elongated mask via PCA: project every mask pixel onto its principal
-    axis and take the extremes. Returns two (row, col) pixel coordinates.
+    axis and take the extremes. Returns two (row, col) pixel coordinates
     """
-    ys, xs = np.where(mask > 0)
-    coords = np.stack([xs, ys], axis=1).astype(np.float64)  # (N, 2) in (x, y)
-    centred = coords - coords.mean(axis=0)
-    _, _, vh = np.linalg.svd(centred, full_matrices=False)
-    projections = centred @ vh[0]  # vh[0] = principal (long) axis
-    p_min = coords[np.argmin(projections)]
-    p_max = coords[np.argmax(projections)]
-    return p_min[::-1], p_max[::-1]  # (x, y) -> (row, col) for depth-map indexing
+    rows, cols = np.where(mask > 0)
+    coords_xy = np.stack([cols, rows], axis=1).astype(np.float64)  # (N, 2) in (x, y)
+    centred_xy = coords_xy - coords_xy.mean(axis=0)
+    _, _, principal_axes = np.linalg.svd(centred_xy, full_matrices=False)
+    long_axis = principal_axes[0]  # first singular vector = principal (long) axis
+    projections = centred_xy @ long_axis
+    min_endpoint_xy = coords_xy[np.argmin(projections)]
+    max_endpoint_xy = coords_xy[np.argmax(projections)]
+    return min_endpoint_xy[::-1], max_endpoint_xy[::-1]  # (x, y) -> (row, col) for depth-map indexing
 
-
-def backproject_pixel(row: float, col: float, depth_map: np.ndarray, cam: CameraInfo, window: int = 5
-                      ) -> np.ndarray:
-    """Back-project one pixel to a 3D camera-space point (metres), using the median depth in a small
-    window for robustness against per-pixel depth noise right at the tip."""
-    r, c = int(round(row)), int(round(col))
-    r0, r1 = max(r - window, 0), min(r + window + 1, depth_map.shape[0])
-    c0, c1 = max(c - window, 0), min(c + window + 1, depth_map.shape[1])
-    patch = depth_map[r0:r1, c0:c1]
-    z = float(np.median(patch[patch > 0])) if np.any(patch > 0) else float(depth_map[r, c])
-    x = (c - cam.cx) * z / cam.fx
-    y = (r - cam.cy) * z / cam.fy
-    return np.array([x, y, z], dtype=np.float64)
-
-
-def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo,
-                           utensil: str = "fork") -> Optional[float]:
+def backproject_pixel(row: float, col: float, depth_map: np.ndarray, cam: CameraInfo, window: int = 5) -> np.ndarray:
     """
-    Recover the absolute-scale correction from a utensil of known real length: measure its 3D length
-    in the depth model's (up-to-scale) units and divide the known length by it. Returns the factor to
-    multiply the depth map by, or None if no reliable reference was found (caller then falls back to
-    the reference-free path).
+    Back-project one pixel to a 3D camera-space point (metres), using the median depth in a small window for robustness
+    against per-pixel depth noise right at the tip
+    """
+    pixel_row, pixel_col = int(round(row)), int(round(col))
+    row_start, row_end = max(pixel_row - window, 0), min(pixel_row + window + 1, depth_map.shape[0])
+    col_start, col_end = max(pixel_col - window, 0), min(pixel_col + window + 1, depth_map.shape[1])
+    depth_patch = depth_map[row_start:row_end, col_start:col_end]
+    valid = depth_patch[depth_patch > 0]
+    depth = float(np.median(valid)) if valid.size else float(depth_map[pixel_row, pixel_col])
+    x_cam = (pixel_col - cam.cx) * depth / cam.fx
+    y_cam = (pixel_row - cam.cy) * depth / cam.fy
+    return np.array([x_cam, y_cam, depth], dtype=np.float64)
+
+
+def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo, utensil: str = "fork") -> Optional[float]:
+    """
+    Recover the absolute-scale correction from a utensil of known real length: measure its 3D length in the depth model's (up-to-scale) units and
+    divide the known length by it. Returns the factor to multiply the depth map by, or None if no reliable reference was found (caller then falls back to
+    the reference-free path)
     """
     known_m = REFERENCE_LENGTHS_M.get(utensil)
     if known_m is None:
@@ -283,7 +283,7 @@ def extract_image_info(image_bytes: bytes, actual_width: int, actual_height: int
         cy=cy,
         image_width=actual_width,
         image_height=actual_height,
-        source=source,
+        source=source
     )
 
 
@@ -303,7 +303,7 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
 
     post_processed = processor.post_process_depth_estimation(
         outputs,
-        target_sizes=[(original_h, original_w)],
+        target_sizes=[(original_h, original_w)]
     )
 
     depth_map = post_processed[0]["predicted_depth"].float().cpu().numpy().astype(np.float32)
@@ -554,7 +554,7 @@ def compute_volume(
         total_volume_cm3, float(plane_p0[2]),
         float(heights_m.max()) * 100.0, float(heights_m.mean()) * 100.0,
         clipped_high_pct, geometry_confidence
-        )
+    )
 
 
 def depth_to_b64_png(depth_map: np.ndarray, pil_image: Optional[Image.Image] = None) -> str:
@@ -685,8 +685,14 @@ async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
     )
 
     t_reference_start = time.perf_counter()
-    reference_correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil="fork")
-    if reference_correction is not None:
+    reference_scale_factors = []
+    for utensil in REFERENCE_LENGTHS_M.keys():
+        correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
+        if correction is not None:
+            reference_scale_factors.append(correction)
+
+    if reference_scale_factors:
+        reference_correction = np.mean(reference_scale_factors)
         depth_map = depth_map * reference_correction
         logger.info(f"[B*] Reference-anchored depth x{reference_correction:.3f} "
                     f"({time.perf_counter() - t_reference_start:.3f}s)")
@@ -698,7 +704,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
         cy=actual_h / 2.0,
         image_width=actual_w,
         image_height=actual_h,
-        source="depthpro_fov",
+        source="depthpro_fov"
     )
 
     t_segmentation_start = time.perf_counter()
@@ -754,7 +760,7 @@ async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
             "plate_depth_m": volume_res.plate_depth_m,
             "intrinsics_source": image_info.source,
             "debug_overlay_b64": seg_b64
-        },
+        }
     )
 
 
@@ -782,7 +788,7 @@ class VolumeAssistedRegressor(nn.Module):
             nn.Linear(768 + 1, 256),
             nn.GELU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 1),
+            nn.Linear(256, 1)
         ]
         if not log_target:
             head_layers.append(nn.Softplus())
@@ -813,7 +819,7 @@ def load_model(model_path: str) -> nn.Module:
             nn.Linear(768, 256),
             nn.GELU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 1),
+            nn.Linear(256, 1)
         ]
         if not log_target:
             head_layers.append(nn.Softplus())
