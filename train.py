@@ -65,7 +65,7 @@ def load_overhead_relief(overhead_rgb_path: Path) -> np.ndarray:
 
 
 def apply_random_tilt(rgb: np.ndarray, depth: np.ndarray | None = None):
-    """Simulate a handheld oblique photo by rotating the virtual camera forward about the X-axis."""
+    """Simulate a handheld oblique photo by rotating the virtual camera forward about the X-axis"""
     tilt_deg = float(np.random.choice([0, 15, 25, 35, 45], p=[0.1, 0.2, 0.3, 0.3, 0.1]))
     if tilt_deg == 0:
         return rgb if depth is None else (rgb, depth)
@@ -288,7 +288,7 @@ def get_transforms(img_size: int = 224):
     """
     Val/test: deterministic resize + normalise only.
     Train: spatial and photometric augmentation is applied in __getitem__
-    so it can operate on both RGB and depth simultaneously.
+    so it can operate on both RGB and depth simultaneously
     """
     train_rgb_finalise = transforms.Compose([
         transforms.ToTensor(),
@@ -318,34 +318,33 @@ def build_train_augmentation(img_size: int = 224) -> tuple[A.Compose, A.Compose,
     spatial_overhead = A.Compose([
         A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
-        A.VerticalFlip(p=0.1),
-        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5),
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-15, 15), border_mode=cv2.BORDER_REPLICATE, p=0.5)
     ], additional_targets={"depth": "image"})
 
     spatial_side = A.Compose([
         A.Resize(img_size, img_size),
         A.HorizontalFlip(p=0.5),
-        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5),
+        A.Affine(translate_percent=(-0.06, 0.06), rotate=(-10, 10), border_mode=cv2.BORDER_REPLICATE, p=0.5)
     ], additional_targets={"depth": "image"})
 
     photometric = A.Compose([
         A.RandomBrightnessContrast(brightness_limit=0.3, contrast_limit=0.3, p=0.5),
         A.HueSaturationValue(hue_shift_limit=15, sat_shift_limit=30, val_shift_limit=20, p=0.3),
         A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-        A.GaussNoise(std_range=(5.0 / 255.0, 30.0 / 255.0), p=0.2),  # was (…, 255/255): std up to full range wiped the image
+        A.GaussNoise(std_range=(5.0 / 255.0, 30.0 / 255.0), p=0.2)  # was (…, 255/255): std up to full range wiped the image
     ])
 
     return spatial_overhead, spatial_side, photometric
 
 
 def worker_init_fn(worker_id: int) -> None:
-    "Reseed numpy per DataLoader worker to ensure the random view/frame selection is actually independent"
+    """Reseed numpy per DataLoader worker to ensure the random view/frame selection is actually independent"""
     worker_seed = (torch.initial_seed() + worker_id) % (2 ** 32)
     np.random.seed(worker_seed)
 
 
 def build_target_lookup(args, dish_ids, mass_g) -> tuple[dict[str, float], str]:
-    """Return (dish_id -> target, unit_label) according to --target."""
+    """Return (dish_id -> target, unit_label) according to --target"""
     mass_min_g, mass_max_g = 20.0, 1500.0
 
     if args.target == "mass":
@@ -401,10 +400,7 @@ class VolumeAssistedRegressor(nn.Module):
         self.norm = backbone.classifier[0]
         self.log_target = log_target
 
-        # Standardisation stats for the log-volume scalar. Without this the scalar enters the head as a
-        # near-constant ~log(200) offset (tiny variation next to the LayerNorm'd features) that the bias
-        # just soaks up, so the head learns to ignore it. Filled from the train cache via set_volume_stats
-        # and saved as buffers so inference (main.py) whitens identically.
+        # Standardisation stats for the log-volume scalar
         self.register_buffer("log_volume_mean", torch.zeros(1))
         self.register_buffer("log_volume_std", torch.ones(1))
 
@@ -423,7 +419,7 @@ class VolumeAssistedRegressor(nn.Module):
         self.head = nn.Sequential(*head_layers)
 
     def set_volume_stats(self, log_mean: float, log_std: float) -> None:
-        """Set the log-volume standardisation stats (from the train split's cached scalars)."""
+        """Set the log-volume standardisation stats (from the train split's cached scalars)"""
         self.log_volume_mean.fill_(float(log_mean))
         self.log_volume_std.fill_(max(float(log_std), 1e-3))  # guard against a degenerate/zero std
 
@@ -453,7 +449,7 @@ def build_model(
         log_target: bool = True,
         head_bias_init: float | None = None,
         use_volume: bool = False,
-        depth_channel: bool = False,
+        depth_channel: bool = False
 ) -> nn.Module:
     if use_volume:
         model = VolumeAssistedRegressor(
@@ -507,9 +503,7 @@ def split_backbone_head_params(model: nn.Module) -> tuple[list, list]:
     return backbone, head
 
 
-# =============================================================================
 # Metrics
-# =============================================================================
 
 def get_mean_absolute_percentage_error(pred: torch.Tensor, target: torch.Tensor) -> float:
     """MAPE with a 1-unit epsilon to avoid division by very small targets."""
@@ -598,7 +592,7 @@ def validate(
         device: torch.device,
         log_target: bool,
         use_volume: bool = False,
-        tta: bool = False,
+        tta: bool = False
 ) -> dict:
     """
     Evaluate on validation/test set without gradient updates.
@@ -654,7 +648,7 @@ def main(args):
         args.metadata,
         header=None,
         engine="python",
-        on_bad_lines="skip",
+        on_bad_lines="skip"
     )
 
     # Col layout: dish_id, calories, total_mass_g, fat_g, carb_g, protein_g, ingredients...
@@ -793,12 +787,9 @@ def main(args):
             backbone_params, head_params = split_backbone_head_params(model)
             optimiser = torch.optim.AdamW([
                 {"params": backbone_params, "lr": args.lr * 0.1},
-                {"params": head_params, "lr": args.lr},
+                {"params": head_params, "lr": args.lr}
             ], weight_decay=1e-4)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimiser,
-                T_max=(args.epochs - args.warmup_epochs) * len(train_loader),
-            )
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=(args.epochs - args.warmup_epochs) * len(train_loader))
 
         train_metrics = train_one_epoch(
             model, train_loader, loss_fn, optimiser, device, epoch, args.log_target, args.use_volume, scheduler,
@@ -822,7 +813,7 @@ def main(args):
                 "val_mape": best_val_mape,
                 "val_mae": val_metrics["mae"],
                 "args": vars(args),
-                "unit": unit,
+                "unit": unit
             }, best_ckpt)
             logger.info(f"  ✓ New best val MAPE={best_val_mape:.1f}% - saved to {best_ckpt}")
 
@@ -851,14 +842,10 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--img_size", type=int, default=224)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--target", choices=["mass", "volume_density"], default="mass",
-                        help="Regression target. mass is honest and matches Nutrition5k baselines.")
-    parser.add_argument("--density", type=float, default=0.8,
-                        help="Only used by --target volume_density (mass/density).")
-    parser.add_argument("--log_target", action=argparse.BooleanOptionalAction, default=True,
-                        help="Regress in log space (recommended for the skewed target).")
-    parser.add_argument("--tta", action=argparse.BooleanOptionalAction, default=True,
-                        help="Horizontal-flip test-time augmentation at val/test.")
+    parser.add_argument("--target", choices=["mass", "volume_density"], default="mass")
+    parser.add_argument("--density", type=float, default=0.8)
+    parser.add_argument("--log_target", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--tta", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--use_volume", action=argparse.BooleanOptionalAction, default=False) # Volume-assisted regression: concat a cached geometric volume scalar into the head (Nutrition5k, Thames et al. 2021)
     parser.add_argument("--volume_cache", type=str, default="./data/volume_scalars.csv") # needed if we do --use_volume
     parser.add_argument("--depth_channel", action=argparse.BooleanOptionalAction, default=False)
