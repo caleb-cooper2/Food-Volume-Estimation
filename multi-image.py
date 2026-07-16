@@ -1,5 +1,4 @@
 import io
-import json
 import logging
 import os
 import tempfile
@@ -11,17 +10,13 @@ import torch
 import trimesh
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.middleware.cors import CORSMiddleware
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
-from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M
+from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M, app
 from model_manage import register_loader, get_model, preload_all
 
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title="Volume Estimation API - Multi-Image")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 if torch.cuda.is_available():
     device = "cuda"

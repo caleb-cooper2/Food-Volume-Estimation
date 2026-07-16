@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 ENDPOINTS = {
     "monocular-geometric": "http://localhost:8000/api/v1/estimate-volume",
     "deep-learning": "http://localhost:8000/api/v1/estimate-volume-dl",
-    "multi-view": "http://localhost:8001/api/v1/estimate-volume-multiview",
+    "multi-view": "http://localhost:8000/api/v1/estimate-volume-multiview",
 }
 
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
