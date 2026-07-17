@@ -1,19 +1,20 @@
 import base64
 import io
 import logging
-import math
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import cv2
+import math
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision import transforms
 import torchvision.models as models
 from PIL import Image
 from pillow_heif import register_heif_opener
+from sympy import true
+from torchvision import transforms
 
 from model_manage import register_loader, get_model
 
@@ -27,8 +28,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Processor, Sam3Model
-
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Processor, Sam3Model, CLIPModel, CLIPProcessor
+from scale_prior import SizePriorHead, extract_clip_features, CLIP_MODEL_NAME
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M, CHECKERBOARD_SQUARE_CM
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
@@ -36,6 +37,7 @@ MAX_FOOD_HEIGHT_M = 0.15
 RELIEF_MEAN_M = 0.010
 RELIEF_STD_M = 0.020
 NOMINAL_FOOD_HEIGHT_CM = 2.0 # crude portion-height prior for the low-confidence fallback
+USE_SIZE_PRIOR_SCALE = True
 
 # Known tip-to-tip lengths of common cutlery (metres). https://www.steelcitycutlery.com/shapesandsizes.html?srsltid=AfmBOoqN4Sg7zv4iAoLmDFJwXQP1FkXmRXZnqZTYWxcUiBf5r3rzJ14o, https://sabre-paris.com/en/pages/size-guide
 # These could vary ~±10% by brand/style, and volume error grows with the CUBE of length error
@@ -52,7 +54,7 @@ REFERENCE_LENGTHS_M = {
 class EstimationResponse:
     """
     volume_cm3 or mass_g gets filled depending on what the approach actually predicts (the geometric and multi-view routes give a volume, the trained model gives a mass), and anything
-    approach-specific gets added in diagnostics so the top-level shape stays identical across all three.
+    approach-specific gets added in diagnostics so the top-level shape stays identical across all three
     """
     approach: str # one of 'monocular-geometric' | 'deep-learning' | 'multi-view'
     volume_cm3: Optional[float]
@@ -62,7 +64,7 @@ class EstimationResponse:
 
 @dataclass
 class CameraInfo:
-    """Pinhole camera model parameters derived from EXIF or fallback."""
+    """Pinhole camera model parameters derived from EXIF or fallback"""
     fx: float  # horizontal focal length in pixels
     fy: float  # vertical focal length in pixels
     cx: float  # principal point x (pixels)
@@ -73,7 +75,7 @@ class CameraInfo:
 
 @dataclass
 class VolumeResult:
-    """Computed volume and intermediate metric values."""
+    """Computed volume and intermediate metric values"""
     volume_cm3: float
     plate_depth_m: float
     max_food_height_cm: float
@@ -107,6 +109,7 @@ torch_dtype = torch.bfloat16
 torch_device = torch.device(device)
 processor = AutoImageProcessor.from_pretrained("apple/DepthPro-hf")
 sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
+clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
 
 def _load_depth_model():
     m = AutoModelForDepthEstimation.from_pretrained("apple/DepthPro-hf", torch_dtype=torch_dtype)
@@ -116,9 +119,21 @@ def _load_sam3_model():
     m = Sam3Model.from_pretrained("facebook/sam3", torch_dtype=torch_dtype)
     return m.eval()
 
+def _load_clip_model():
+    m = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
+    return m.eval()
+
+def load_size_prior_head(model_path: str) -> nn.Module:
+    """Rebuild the trained CLIP size-prior head from its checkpoint"""
+    checkpoint = torch.load(model_path, map_location="cpu")
+    head = SizePriorHead(feature_dim=checkpoint.get("feature_dim", 512))
+    head.load_state_dict(checkpoint["state_dict"])
+    return head.eval()
+
 register_loader("depthpro", _load_depth_model)
 register_loader("sam3", _load_sam3_model)
-
+register_loader("clip", _load_clip_model)
+register_loader("size_prior", lambda: load_size_prior_head("checkpoints/size_prior.pt"))
 
 
 # Reference-object scaling, relief/depth-channel helpers, and the depth, segmentation and plane/volume geometry every approach leans on
@@ -210,6 +225,33 @@ def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam
     return correction
 
 
+def predict_scale_from_size_prior(pillow_image: Image.Image, depth_map: np.ndarray, food_mask: np.ndarray, cam: CameraInfo) -> Optional[float]:
+    """
+    Reference-free metric-scale anchor using a frozen-CLIP size-prior head.
+    Predicts the food's real-world footprint diameter from appearance, dividing that by the diameter measured in the
+    (up-to-scale) monocular depth gives the factor that makes the depth metric
+    """
+    measured_cm = metric_footprint_diameter_cm(depth_map, food_mask, cam)
+    if measured_cm <= 1e-3:
+        return None
+
+    head = get_model("size_prior")
+    clip_model = get_model("clip", next_name="sam3")
+    features = extract_clip_features(pillow_image, clip_model, clip_processor, torch_device)
+
+    head_device = next(head.parameters()).device
+    features = features.to(head_device)
+    predicted_log_cm = head(features)
+    predicted_cm = float(torch.exp(predicted_log_cm).item())
+
+    scale = predicted_cm / measured_cm
+    logger.info(f"  SizePrior | predicted footprint {predicted_cm:.1f}cm vs measured {measured_cm:.1f}cm -> depth scale x{scale:.3f}")
+    if not (0.15 <= scale <= 3.0): # a >3x correction is almost always a bad predict/measure, not real scale (matches the fork path)
+        logger.warning(f"  SizePrior | scale x{scale:.3f} implausible -> rejecting, keeping raw depth")
+        return None
+    return scale
+
+
 def checkerboard_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo) -> Optional[float]:
     """
     Absolute-scale correction from the SimpleFood45 checkerboard, measure adjacent inner-corner spacing in the depth model's raw units and divide the known 1.2 cm by it.
@@ -234,7 +276,7 @@ def checkerboard_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, 
     measured_m = float(np.median(spacings))
     correction = CHECKERBOARD_SQUARE_M / measured_m
     logger.info(f"  Reference | checkerboard square measured {measured_m*100:.2f}cm in raw depth units vs known {CHECKERBOARD_SQUARE_CM}cm -> depth scale x{correction:.3f}")
-    if not (0.15 <= correction <= 3.0):  # a >3x correction is almost always a bad detection/depth, not real scale
+    if not (0.15 <= correction <= 3.0): # a >3x correction is almost always a bad detection/depth, not real scale
         logger.warning(f"  Reference | correction x{correction:.3f} implausible -> rejecting")
         return None
     return correction
@@ -256,6 +298,22 @@ def inflate_stem_to_4ch(model: nn.Module) -> None:
         new_stem.weight[:, 3:4] = old_stem.weight.mean(dim=1, keepdim=True)
         new_stem.bias.copy_(old_stem.bias)
     model.features[0][0] = new_stem
+
+
+def metric_footprint_diameter_cm(depth_map: np.ndarray, food_mask: np.ndarray, cam: CameraInfo) -> float:
+    """
+    Equivalent circular diameter (cm) of the food's real-world footprint achieved by
+    - sum the per-pixel metric areas over the mask
+    - then D = 2*sqrt(A/pi)
+    """
+    food_px = food_mask > 0
+    if not np.any(food_px):
+        return 0.0
+    ys, xs = np.where(food_px)
+    z = depth_map[ys, xs].astype(np.float64)
+    pixel_area_m2 = (z / cam.fx) * (z / cam.fy)
+    area_cm2 = float(np.sum(pixel_area_m2)) * 10000 # m^2 -> cm^2
+    return 2.0 * math.sqrt(area_cm2 / math.pi)
 
 
 def area_based_volume_proxy(depth_map: np.ndarray, food_mask: np.ndarray, cam: CameraInfo) -> float:
@@ -520,7 +578,7 @@ def compute_volume(
         food_mask: np.ndarray,
         image_info: CameraInfo,
         plane_n: np.ndarray,
-        plane_p0: np.ndarray,
+        plane_p0: np.ndarray
 ) -> VolumeResult:
     """
     Integrate volume as a sum of per-pixel prisms, but measure height as the perpendicular distance from each food point to the fitted support plane
@@ -716,27 +774,6 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
         f"({time.perf_counter()-t_depth_start:.3f}s)"
     )
 
-    t_reference_start = time.perf_counter()
-    if scale_ref == "checkerboard":
-        # Benchmarking path: anchor scale on the known-geometry checkerboard instead of a utensil
-        correction = checkerboard_scale_factor(pillow_image, depth_map, image_info)
-        if correction is not None:
-            depth_map = depth_map * correction
-            logger.info(f"[B*] Checkerboard-anchored depth x{correction:.3f} "
-                        f"({time.perf_counter() - t_reference_start:.3f}s)")
-    else:
-        reference_scale_factors = []
-        for utensil in REFERENCE_LENGTHS_M.keys():
-            correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
-            if correction is not None:
-                reference_scale_factors.append(correction)
-
-        if reference_scale_factors:
-            reference_correction = np.mean(reference_scale_factors)
-            depth_map = depth_map * reference_correction
-            logger.info(f"[B*] Reference-anchored depth x{reference_correction:.3f} "
-                        f"({time.perf_counter() - t_reference_start:.3f}s)")
-
     image_info = CameraInfo(
         fx=focal_length_px,
         fy=focal_length_px, # DepthPro predicts horizontal FOV; assume square pixels
@@ -752,6 +789,35 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
     food_pixel_count = int(food_mask.sum())
     food_coverage_pct = food_pixel_count / food_mask.size * 100
     logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
+
+
+
+    t_reference_start = time.perf_counter()
+    if scale_ref == "checkerboard":
+        # Benchmarking path: anchor scale on the known-geometry checkerboard instead of a utensil
+        correction = checkerboard_scale_factor(pillow_image, depth_map, image_info)
+        if correction is not None:
+            depth_map = depth_map * correction
+            logger.info(f"[B*] Checkerboard-anchored depth x{correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
+    else:
+        reference_scale_factors = []
+        for utensil in REFERENCE_LENGTHS_M.keys():
+            correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
+            if correction is not None:
+                reference_scale_factors.append(correction)
+
+        if reference_scale_factors:
+            reference_correction = np.mean(reference_scale_factors)
+
+        size_prior_scale = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
+
+        if USE_SIZE_PRIOR_SCALE:
+            depth_map = depth_map * size_prior_scale
+            logger.info(f"[B*] Used size-prior-anchored depth")
+        else:
+            depth_map = depth_map * reference_correction
+            logger.info(f"[B*] Used reference-anchored depth")
+        logger.info(f"[B*] Size prior found x{size_prior_scale:.3f}, reference anchored found x{reference_correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
 
     t_plate_depth_start = time.perf_counter()
     plate_depth_m = estimate_plate_depth(depth_map, food_mask)

@@ -51,18 +51,21 @@ def depth_to_relief_channel(depth_m: np.ndarray) -> np.ndarray:
     return np.clip(plate_ref_m - depth_m, 0.0, MAX_FOOD_HEIGHT_M).astype(np.float32)
 
 
-def load_overhead_relief(overhead_rgb_path: Path) -> np.ndarray:
-    """Read Nutrition5k's aligned overhead depth (depth_raw.png, 16-bit millimetres) as relief (m)"""
+def load_overhead_depth_m(overhead_rgb_path: Path) -> np.ndarray:
+    """Read Nutrition5k's aligned overhead depth (depth_raw.png, 0.1mm units) as metres, RealSense holes filled."""
     depth_path = overhead_rgb_path.with_name("depth_raw.png")
     depth_mm = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
     if depth_mm is None:
         raise FileNotFoundError(f"No overhead depth at {depth_path}")
-    depth_m = depth_mm.astype(np.float32) / 1000.0
+    depth_m = depth_mm.astype(np.float32) / 10000.0 # depth_raw.png is 0.1mm units, not mm
     holes = depth_m <= 0
-    if holes.any():  # RealSense drops pixels; fill with the plate reference so relief reads ~0 there
+    if holes.any():
         depth_m[holes] = np.median(depth_m[~holes]) if (~holes).any() else 0.0
-    return depth_to_relief_channel(depth_m)
+    return depth_m
 
+def load_overhead_relief(overhead_rgb_path: Path) -> np.ndarray:
+    """Read Nutrition5k's aligned overhead depth as relief (m above the support surface)"""
+    return depth_to_relief_channel(load_overhead_depth_m(overhead_rgb_path))
 
 def apply_random_tilt(rgb: np.ndarray, depth: np.ndarray | None = None):
     """Simulate a handheld oblique photo by rotating the virtual camera forward about the X-axis"""
