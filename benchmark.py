@@ -8,9 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import cv2
 import numpy as np
 import requests
+
+from checkerboard import detect_pose
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,11 +36,9 @@ ENDPOINTS = {
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
 
 DEFAULT_DENSITY_G_CM3 = 0.8  # only used to bridge units when a sample has no measured density
-MULTIVIEW_MAX_FRAMES = 8  # evenly spaced frames handed to the multi-view endpoint
+MULTIVIEW_MAX_FRAMES = 3  # evenly spaced frames handed to the multi-view endpoint
 REQUEST_TIMEOUT_S = 600 # model inference on CPU/MPS is slow so give it room
 
-CHECKERBOARD_SQUARE_CM = 1.2      # SimpleFood45 says corners 1.2 cm apart
-CHECKERBOARD_INNER = (4, 3)       # (cols, rows) of inner corners on the 5x4 board
 TILT_BUCKETS = ((0.0, 15.0, "overhead"), (15.0, 35.0, "mild"), (35.0, 999.0, "oblique"))
 
 MIME_BY_SUFFIX = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".heic": "image/heic"}
@@ -104,8 +103,11 @@ def file_tuple(path: Path):
     return path.name, path.read_bytes(), mime
 
 
-def call_volume_endpoint(approach: str, image_paths: list[Path]) -> dict:
-    """POST to the deployed endpoint and returns the EstimationResponse json"""
+def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str) -> dict:
+    """
+    POST to deployed endpoint and returns EstimationResponse json. scale_ref (from manifest) tells the endpoint how to
+    anchor scale -> 'checkerboard' substitutes the utensil during benchmarking
+    """
     url = ENDPOINTS[approach]
     if approach in SINGLE_IMAGE_APPROACHES:
         files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
@@ -116,71 +118,9 @@ def call_volume_endpoint(approach: str, image_paths: list[Path]) -> dict:
             idx = np.linspace(0, len(image_paths) - 1, MULTIVIEW_MAX_FRAMES).round().astype(int)
             frames = [image_paths[i] for i in idx]
         files = [("files", file_tuple(p)) for p in frames]
-    resp = requests.post(url, files=files, timeout=REQUEST_TIMEOUT_S)
+    resp = requests.post(url, files=files, data={"scale_ref": scale_ref}, timeout=REQUEST_TIMEOUT_S)
     resp.raise_for_status()
     return resp.json()
-
-
-# Checkerboard scale + angle reference
-@dataclass
-class CheckerboardPose:
-    found: bool
-    scale_cm_per_px: Optional[float] = None
-    tilt_deg: Optional[float] = None  # board-plane angle off the optical axis -> 0 = straight-on / overhead
-    n_corners: int = 0
-
-
-def detect_checkerboard(image_path: Path) -> CheckerboardPose:
-    img = cv2.imread(str(image_path))
-    if img is None:
-        return CheckerboardPose(False)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
-
-    for cols, rows in (CHECKERBOARD_INNER, CHECKERBOARD_INNER[::-1]):  # board may sit either orientation
-        found, corners = cv2.findChessboardCorners(gray, (cols, rows), flags)
-        if found:
-            break
-    if not found:
-        return CheckerboardPose(False)
-
-    corners = cv2.cornerSubPix(
-        gray,
-        corners,
-        (11, 11),
-        (-1, -1),
-        (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-    )
-    scale = corner_spacing_scale(corners, cols, rows)
-    tilt = checkerboard_tilt(corners, cols, rows, img.shape)
-    return CheckerboardPose(True, round(scale, 5), round(tilt, 1), len(corners))
-
-
-def corner_spacing_scale(corners: np.ndarray, cols: int, rows: int) -> float:
-    """cm-per-pixel from the median neighbour spacing. Mild tilt foreshortens this slightly but good enough as a scale reference"""
-    grid = corners.reshape(rows, cols, 2)
-    dx = np.linalg.norm(np.diff(grid, axis=1), axis=2)
-    dy = np.linalg.norm(np.diff(grid, axis=0), axis=2)
-    spacing_px = float(np.median(np.concatenate([dx.ravel(), dy.ravel()])))
-    return CHECKERBOARD_SQUARE_CM / spacing_px
-
-
-def checkerboard_tilt(corners: np.ndarray, cols: int, rows: int, img_shape) -> float:
-    image_height, image_width = img_shape[:2]
-    focal_px = 1.2 * max(image_width, image_height)
-    camera_matrix = np.array([[focal_px, 0, image_width / 2.0], [0, focal_px, image_height / 2.0], [0, 0, 1]], dtype=np.float64)
-
-    board_corners_cm = np.zeros((cols * rows, 3), np.float32)
-    board_corners_cm[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2) * CHECKERBOARD_SQUARE_CM
-    solved, board_rotation_vector, board_translation_vector = cv2.solvePnP(board_corners_cm, corners, camera_matrix, None, flags=cv2.SOLVEPNP_ITERATIVE)
-    if not solved:
-        return float("nan")
-
-    rotation_matrix, _ = cv2.Rodrigues(board_rotation_vector)
-    board_normal = rotation_matrix[:, 2]  # board +z axis expressed in the camera frame
-    view_direction = board_translation_vector.ravel() / np.linalg.norm(board_translation_vector)  # camera -> board centre
-    normal_view_cos = abs(float(board_normal @ view_direction))
-    return float(np.degrees(np.arccos(np.clip(normal_view_cos, 0.0, 1.0))))
 
 
 # Unit bridge, need to handle either volume or mass when needed
@@ -248,6 +188,7 @@ def run_benchmark(args) -> None:
             sample_id, tier, source = row["sample_id"], row["tier"], row["source"]
             gt_mass, gt_volume = as_float(row["gt_mass_g"]), as_float(row["gt_volume_cm3"])
             density, ref_tilt = as_float(row["density"]), as_float(row["ref_tilt_deg"])
+            scale_ref = row["scale_ref"] or "utensil"
             image_paths = resolve_images(row["images"])
             approaches = [a.strip() for a in row["approaches"].split(";") if a.strip()]
 
@@ -258,7 +199,7 @@ def run_benchmark(args) -> None:
             for approach in approaches:
                 if (sample_id, approach) in done:
                     continue
-                result = score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt)
+                result = score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt, scale_ref)
                 writer.writerow({k: v for k, v in asdict(result).items() if k in RESULT_FIELDS})
                 f.flush()  # flush per row so an interrupted run keeps everything up to here
 
@@ -266,9 +207,9 @@ def run_benchmark(args) -> None:
     summarise(out_path)
 
 
-def score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt) -> ResultRow:
+def score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt, scale_ref) -> ResultRow:
     try:
-        resp = call_volume_endpoint(approach, image_paths)
+        resp = call_volume_endpoint(approach, image_paths, scale_ref)
     except Exception as e:
         logger.error(f"{sample_id} [{approach}]: request failed ({e})")
         return ResultRow(sample_id, tier, source, approach, False, None, None, gt_mass, gt_volume, None, False, ref_tilt, None, str(e))
@@ -401,7 +342,7 @@ def build_simplefood45_manifest(args) -> None:
                 sample_id = f"{label}_{per_label_count[label]:02d}"
                 per_label_count[label] += 1
 
-                pose = detect_checkerboard(item_frames[len(item_frames) // 2])
+                pose = detect_pose(item_frames[len(item_frames) // 2])
                 if not pose.found:
                     logger.warning(f"{sample_id}: no checkerboard in representative frame")
                     n_no_board += 1
