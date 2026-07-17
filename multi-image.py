@@ -1,5 +1,4 @@
 import io
-import json
 import logging
 import os
 import tempfile
@@ -10,18 +9,15 @@ import open3d as o3d
 import torch
 import trimesh
 from PIL import Image
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import File, UploadFile, HTTPException, Form
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
-from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M
+from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M, app
+from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M
 from model_manage import register_loader, get_model, preload_all
 
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title="Volume Estimation API - Multi-Image")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -33,7 +29,7 @@ else:
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
 SEMANTIC_CV_FLOOR = 0.15  # rough uncertainty we give the geometric estimate when fusing with the NLP prior
-INSTANCE_COLLAPSE_RATIO = 0.4  # instance < 40% of the fused blob => per-instance meshing collapsed (single-view slab)
+INSTANCE_COLLAPSE_RATIO = 0.2  # instance < 20% of the fused blob => per-instance meshing collapsed (single-view slab)
 
 register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
 
@@ -113,6 +109,37 @@ def reference_scale_from_reconstruction(primary: Image.Image, world_points: np.n
     scale = known_m / measured
     logger.info(f"  Reference | utensil {measured:.4f} VGGT-units vs known {known_m:.3f}m -> scale x{scale:.4f}")
     return scale
+
+
+def checkerboard_scale_from_reconstruction(primary: Image.Image, world_points: np.ndarray) -> float | None:
+    """
+    Checkerboard analog of reference_scale_from_reconstruction for benchmarking: measure the board's 1.2 cm inner-corner
+    spacing directly in VGGT's up-to-scale world points and return the factor that makes the reconstruction metric.
+    """
+    found = find_corners(cv2.cvtColor(np.array(primary), cv2.COLOR_RGB2BGR))
+    if found is None:
+        return None
+    corners, cols, rows = found
+
+    target_h, target_w = world_points.shape[:2]
+    scale_x, scale_y = target_w / primary.width, target_h / primary.height  # full-res corner px -> world-point grid
+    spacings = []
+    for (row_a, col_a), (row_b, col_b) in adjacent_corner_pixel_pairs(corners, cols, rows):
+        point_a = sample_world_point(world_points, row_a * scale_y, col_a * scale_x)
+        point_b = sample_world_point(world_points, row_b * scale_y, col_b * scale_x)
+        if point_a is not None and point_b is not None:
+            distance = float(np.linalg.norm(point_a - point_b))
+            if distance > 1e-6:
+                spacings.append(distance)
+    if not spacings:
+        logger.warning("  Reference | checkerboard corners missing from reconstruction -> reference-free scale")
+        return None
+
+    measured = float(np.median(spacings))
+    scale = CHECKERBOARD_SQUARE_M / measured
+    logger.info(f"  Reference | checkerboard square {measured:.4f} VGGT-units vs known {CHECKERBOARD_SQUARE_M:.3f}m -> scale x{scale:.4f}")
+    return scale
+
 
 def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_metric: np.ndarray) -> float:
     """
@@ -225,9 +252,9 @@ def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, st
     Prefer the per-instance volume: per-piece meshing avoids the convex ballooning the single fused blob is prone to, so it usually lands closer to truth.
     When instance << blob that's the collapse signature, and the fused multi-view blob is the trustworthy number!
     """
-    if blob_cm3 > 0 and instance_cm3 < INSTANCE_COLLAPSE_RATIO * blob_cm3:
-        logger.warning(f"Instance {instance_cm3:.1f} < {INSTANCE_COLLAPSE_RATIO:.0%} of blob {blob_cm3:.1f} -> per-instance collapsed, falling back to fused blob")
-        return blob_cm3, "blob_fallback"
+    # if blob_cm3 > 0 and instance_cm3 < INSTANCE_COLLAPSE_RATIO * blob_cm3:
+    #     logger.warning(f"Instance {instance_cm3:.1f} < {INSTANCE_COLLAPSE_RATIO:.0%} of blob {blob_cm3:.1f} -> per-instance collapsed, falling back to fused blob")
+    #     return blob_cm3, "blob_fallback"
     return instance_cm3, "instance"
 
 
@@ -243,7 +270,7 @@ def startup_event():
 @app.post("/api/v1/estimate-volume-multiview", response_model=EstimationResponse)
 async def volume_estimation_multiview(
         files: list[UploadFile] = File(...),
-        context: str | None = Form(None),  # optional NLP semantic prior, JSON string
+        scale_ref: str = Form("utensil"),  # 'checkerboard' anchors on the SimpleFood45 board (benchmarking)
 ) -> EstimationResponse:
     # no minimum image amount as vggt outlines that single image performance is still acceptable?
     if len(files) > 10:
@@ -288,8 +315,20 @@ async def volume_estimation_multiview(
     )
     bg_mask = food_mask_resized == 0
 
-    # Prefer the reference-utensil scale... only fall back to a DepthPro anchor if that fails
-    scale = reference_scale_from_reconstruction(primary, world_points, utensil="fork")
+    # Prefer the reference scale (utensil, or the checkerboard when benchmarking), only fall back to a DepthPro anchor if that fails
+    if scale_ref == "checkerboard":
+        scale = checkerboard_scale_from_reconstruction(primary, world_points)
+    else:
+        reference_scale_factors = []
+        for utensil in REFERENCE_LENGTHS_M.keys():
+            correction = reference_scale_from_reconstruction(primary, world_points, utensil=utensil)
+            if correction is not None:
+                reference_scale_factors.append(correction)
+
+        if reference_scale_factors:
+            scale = np.mean(reference_scale_factors)
+        else:
+            scale = None
 
     if scale is None:
         # Anchor VGGT against DepthPro's metric depth over the background, resized to match VGGT

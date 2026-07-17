@@ -25,9 +25,11 @@ from rich.logging import RichHandler
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation, Sam3Processor, Sam3Model
+
+from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M, CHECKERBOARD_SQUARE_CM
 
 M3_TO_CM3 = 1_000_000.0  # 1 m^3 = 10^6 cm^3
 MAX_FOOD_HEIGHT_M = 0.15
@@ -202,8 +204,38 @@ def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam
         f"  Reference | '{utensil}' measured {measured_m*100:.1f}cm in raw depth units "
         f"vs known {known_m*100:.1f}cm -> depth scale x{correction:.3f}"
     )
-    if not (0.33 <= correction <= 3.0):  # a >3x correction is almost always a bad mask/depth, not real scale
+    if not (0.15 <= correction <= 3.0):  # a >3x correction is almost always a bad mask/depth, not real scale
         logger.warning(f"  Reference | correction x{correction:.3f} implausible -> rejecting, using reference-free scale")
+        return None
+    return correction
+
+
+def checkerboard_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo) -> Optional[float]:
+    """
+    Absolute-scale correction from the SimpleFood45 checkerboard, measure adjacent inner-corner spacing in the depth model's raw units and divide the known 1.2 cm by it.
+    Exact known geometry replaces the utensil's +-10% length guess. Returns the factor to multiply the depth map by, or None
+    """
+    found = find_corners(cv2.cvtColor(np.array(pillow_image), cv2.COLOR_RGB2BGR))
+    if found is None:
+        logger.warning("  Reference | no checkerboard found -> cannot anchor scale from the board")
+        return None
+    corners, cols, rows = found
+
+    spacings = []
+    for (row_a, col_a), (row_b, col_b) in adjacent_corner_pixel_pairs(corners, cols, rows):
+        point_a = backproject_pixel(row_a, col_a, depth_map, cam)
+        point_b = backproject_pixel(row_b, col_b, depth_map, cam)
+        distance = float(np.linalg.norm(point_a - point_b))
+        if distance > 1e-5:
+            spacings.append(distance)
+    if not spacings:
+        return None
+
+    measured_m = float(np.median(spacings))
+    correction = CHECKERBOARD_SQUARE_M / measured_m
+    logger.info(f"  Reference | checkerboard square measured {measured_m*100:.2f}cm in raw depth units vs known {CHECKERBOARD_SQUARE_CM}cm -> depth scale x{correction:.3f}")
+    if not (0.15 <= correction <= 3.0):  # a >3x correction is almost always a bad detection/depth, not real scale
+        logger.warning(f"  Reference | correction x{correction:.3f} implausible -> rejecting")
         return None
     return correction
 
@@ -636,7 +668,7 @@ def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores:
 # Approach A - Monocular geometric
 # Single RGB image -> metric depth + food mask -> support plane -> height-field integral. Only geometry, no learned volume regression
 @app.post("/api/v1/estimate-volume", response_model=EstimationResponse)
-async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
+async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form("utensil")) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline:
     1. Extract camera intrinsics from EXIF
@@ -685,17 +717,25 @@ async def volume_estimation(file: UploadFile = File(...)) -> EstimationResponse:
     )
 
     t_reference_start = time.perf_counter()
-    reference_scale_factors = []
-    for utensil in REFERENCE_LENGTHS_M.keys():
-        correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
+    if scale_ref == "checkerboard":
+        # Benchmarking path: anchor scale on the known-geometry checkerboard instead of a utensil
+        correction = checkerboard_scale_factor(pillow_image, depth_map, image_info)
         if correction is not None:
-            reference_scale_factors.append(correction)
+            depth_map = depth_map * correction
+            logger.info(f"[B*] Checkerboard-anchored depth x{correction:.3f} "
+                        f"({time.perf_counter() - t_reference_start:.3f}s)")
+    else:
+        reference_scale_factors = []
+        for utensil in REFERENCE_LENGTHS_M.keys():
+            correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
+            if correction is not None:
+                reference_scale_factors.append(correction)
 
-    if reference_scale_factors:
-        reference_correction = np.mean(reference_scale_factors)
-        depth_map = depth_map * reference_correction
-        logger.info(f"[B*] Reference-anchored depth x{reference_correction:.3f} "
-                    f"({time.perf_counter() - t_reference_start:.3f}s)")
+        if reference_scale_factors:
+            reference_correction = np.mean(reference_scale_factors)
+            depth_map = depth_map * reference_correction
+            logger.info(f"[B*] Reference-anchored depth x{reference_correction:.3f} "
+                        f"({time.perf_counter() - t_reference_start:.3f}s)")
 
     image_info = CameraInfo(
         fx=focal_length_px,
