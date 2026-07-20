@@ -809,14 +809,18 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
         if reference_scale_factors:
             reference_correction = np.mean(reference_scale_factors)
 
+        reference_correction = 0
+
         size_prior_scale = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
 
         if USE_SIZE_PRIOR_SCALE:
             depth_map = depth_map * size_prior_scale
             logger.info(f"[B*] Used size-prior-anchored depth")
-        else:
+        elif reference_correction != 0:
             depth_map = depth_map * reference_correction
             logger.info(f"[B*] Used reference-anchored depth")
+        else:
+            logger.info(f"[B*] No reference scale found -> using depth as-is")
         logger.info(f"[B*] Size prior found x{size_prior_scale:.3f}, reference anchored found x{reference_correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
 
     t_plate_depth_start = time.perf_counter()
@@ -940,7 +944,7 @@ def load_model(model_path: str) -> nn.Module:
     model._depth_channel = depth_channel
     return model.eval()
 
-register_loader("custom_volume", lambda: load_model("checkpoints/best_model.pt"))
+register_loader("custom_volume", lambda: load_model("models/convnext-tiny-scalar-depth.pt"))
 
 _rgb_transform = transforms.Compose([
     transforms.Resize((224, 224)),
