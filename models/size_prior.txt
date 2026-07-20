@@ -1,0 +1,93 @@
+(.venv) [cco139@cs25041kx ~/IdeaProjects/volume-estimation]$ python train_size_prior.py --data_root /uc/usersc/cco139/Home/Downloads/datasets/gillesokhin/nutrition5k-dataset/versions/6
+[11:53:21] INFO Device: cuda
+[11:53:21] INFO Footprint cache: 3457 dishes with a usable size from ./data/footprint_sizes.csv
+[11:53:21] INFO Split: train=2939 | val=518
+[11:53:22] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+[11:53:22] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+[11:53:22] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/chat_template.json "HTTP/1.1 404 Not Found"
+[11:53:23] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/chat_template.jinja "HTTP/1.1 404 Not Found"
+[11:53:23] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/audio_tokenizer_config.json "HTTP/1.1 404 Not Found"
+[11:53:23] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+[11:53:24] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+[11:53:24] INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch16/57c216476eefef5ab752ec549e440a49ae4ae5f3/preprocessor_config.json "HTTP/1.1 200 OK"
+[11:53:24] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+[11:53:24] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+[11:53:24] INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch16/57c216476eefef5ab752ec549e440a49ae4ae5f3/preprocessor_config.json "HTTP/1.1 200 OK"
+[11:53:25] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+[11:53:25] INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch16/57c216476eefef5ab752ec549e440a49ae4ae5f3/config.json "HTTP/1.1 200 OK"
+[11:53:25] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+[11:53:25] INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch16/57c216476eefef5ab752ec549e440a49ae4ae5f3/tokenizer_config.json "HTTP/1.1 200 OK"
+[11:53:25] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+[11:53:26] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+[11:53:26] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+[11:53:26] INFO HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch16/57c216476eefef5ab752ec549e440a49ae4ae5f3/config.json "HTTP/1.1 200 OK"
+[11:53:26] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+[11:53:27] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+[11:53:27] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+[11:53:27] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+[11:53:28] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16 "HTTP/1.1 200 OK"
+[11:53:28] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/commits/main "HTTP/1.1 200 OK"
+Loading weights: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 398/398 [00:00<00:00, 70341.02it/s]
+[11:53:28] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/discussions?p=0 "HTTP/1.1 200 OK"
+[11:53:28] INFO HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch16/commits/refs%2Fpr%2F17 "HTTP/1.1 200 OK"
+[11:53:29] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/refs%2Fpr%2F17/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+[11:53:29] INFO HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch16/resolve/refs%2Fpr%2F17/model.safetensors "HTTP/1.1 302 Found"
+[11:53:34] INFO Head bias init = 2.6646 (log cm, mean footprint 14.4cm)
+[11:54:46] INFO Epoch   1/30 | val size MAPE=9.5% | time=71.9s
+[11:54:46] INFO   ✓ New best val size MAPE=9.5% - saved to checkpoints/size_prior.pt
+[11:55:07] INFO Epoch   2/30 | val size MAPE=8.2% | time=21.1s
+[11:55:07] INFO   ✓ New best val size MAPE=8.2% - saved to checkpoints/size_prior.pt
+[11:55:28] INFO Epoch   3/30 | val size MAPE=7.7% | time=20.9s
+[11:55:28] INFO   ✓ New best val size MAPE=7.7% - saved to checkpoints/size_prior.pt
+[11:55:49] INFO Epoch   4/30 | val size MAPE=7.5% | time=20.8s
+[11:55:49] INFO   ✓ New best val size MAPE=7.5% - saved to checkpoints/size_prior.pt
+[11:56:10] INFO Epoch   5/30 | val size MAPE=7.4% | time=21.4s
+[11:56:10] INFO   ✓ New best val size MAPE=7.4% - saved to checkpoints/size_prior.pt
+[11:56:31] INFO Epoch   6/30 | val size MAPE=7.3% | time=21.1s
+[11:56:31] INFO   ✓ New best val size MAPE=7.3% - saved to checkpoints/size_prior.pt
+[11:56:53] INFO Epoch   7/30 | val size MAPE=7.3% | time=21.3s
+[11:57:15] INFO Epoch   8/30 | val size MAPE=7.3% | time=22.0s
+[11:57:15] INFO   ✓ New best val size MAPE=7.3% - saved to checkpoints/size_prior.pt
+[11:57:36] INFO Epoch   9/30 | val size MAPE=7.0% | time=21.1s
+[11:57:36] INFO   ✓ New best val size MAPE=7.0% - saved to checkpoints/size_prior.pt
+[11:57:57] INFO Epoch  10/30 | val size MAPE=6.9% | time=21.5s
+[11:57:57] INFO   ✓ New best val size MAPE=6.9% - saved to checkpoints/size_prior.pt
+[11:58:18] INFO Epoch  11/30 | val size MAPE=6.9% | time=21.1s
+[11:58:39] INFO Epoch  12/30 | val size MAPE=7.2% | time=21.1s
+[11:59:00] INFO Epoch  13/30 | val size MAPE=6.9% | time=21.0s
+[11:59:22] INFO Epoch  14/30 | val size MAPE=7.5% | time=21.8s
+[11:59:46] INFO Epoch  15/30 | val size MAPE=7.3% | time=23.8s
+[12:00:08] INFO Epoch  16/30 | val size MAPE=7.0% | time=21.7s
+[12:00:29] INFO Epoch  17/30 | val size MAPE=6.8% | time=21.7s
+[12:00:29] INFO   ✓ New best val size MAPE=6.8% - saved to checkpoints/size_prior.pt
+[12:00:51] INFO Epoch  18/30 | val size MAPE=7.0% | time=21.2s
+[12:01:12] INFO Epoch  19/30 | val size MAPE=6.7% | time=21.3s
+[12:01:12] INFO   ✓ New best val size MAPE=6.7% - saved to checkpoints/size_prior.pt
+[12:01:34] INFO Epoch  20/30 | val size MAPE=6.8% | time=22.3s
+[12:01:56] INFO Epoch  21/30 | val size MAPE=6.8% | time=22.2s
+[12:02:18] INFO Epoch  22/30 | val size MAPE=6.8% | time=21.8s
+[12:02:40] INFO Epoch  23/30 | val size MAPE=6.8% | time=21.8s
+[12:03:03] INFO Epoch  24/30 | val size MAPE=6.8% | time=23.3s
+^CTraceback (most recent call last):
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/train_size_prior.py", line 176, in <module>
+    main(args)
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/train_size_prior.py", line 131, in main
+    for batch in train_loader:
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 718, in __next__
+    data = self._next_data()
+           ^^^^^^^^^^^^^^^^^
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 1501, in _next_data
+    idx, data = self._get_data()
+                ^^^^^^^^^^^^^^^^
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 1450, in _get_data
+    success, data = self._try_get_data()
+                    ^^^^^^^^^^^^^^^^^^^^
+  File "/csse/users/cco139/IdeaProjects/volume-estimation/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 1287, in _try_get_data
+    data = self._data_queue.get(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/queue.py", line 180, in get
+    self.not_empty.wait(remaining)
+  File "/usr/lib/python3.12/threading.py", line 359, in wait
+    gotit = waiter.acquire(True, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
