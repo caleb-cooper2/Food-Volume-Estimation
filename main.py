@@ -806,10 +806,10 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
             if correction is not None:
                 reference_scale_factors.append(correction)
 
+        reference_correction = 0
+
         if reference_scale_factors:
             reference_correction = np.mean(reference_scale_factors)
-
-        reference_correction = 0
 
         size_prior_scale = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
 
