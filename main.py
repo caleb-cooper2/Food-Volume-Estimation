@@ -17,6 +17,8 @@ from sympy import true
 from torchvision import transforms
 
 from model_manage import register_loader, get_model
+from nlp_client import extract_entities
+from volume_to_mass import volume_to_mass
 
 register_heif_opener()
 
@@ -83,6 +85,17 @@ class VolumeResult:
     clipped_high_pct: float = 0.0
     geometry_confidence: float = 1.0  # 0..1, drops on oblique views / heavy clipping where the height-field integral is unreliable
 
+
+@dataclass
+class FoodItemResult:
+    """One named food: its mask and everything derived from it"""
+    prompt: str
+    mask: np.ndarray
+    score: float # mean SAM 3 instance score
+    entity: Optional[dict] = None # the NLP entity it came from
+    volume_cm3: float = 0.0
+    geometry_confidence: float = 0.0
+    mass: Optional[dict] = None # volume_to_mass output, None when no density was available
 
 # App, logging and device setup
 
@@ -418,7 +431,7 @@ def estimate_depth(pillow_image: Image.Image) -> tuple[np.ndarray, float]:
     return depth_map, focal_length_px
 
 
-def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.ndarray, list[float], list[np.ndarray]]:
+def segment_food(pillow_image: Image.Image, threshold: float = 0.5, prompt="food") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
     """
     Segment food region using SAM 3 with text prompt "food".
     Falls back to full-image mask if no instances found.
@@ -427,7 +440,7 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     img_w, img_h = pillow_image.size
     total_pixels = img_w * img_h
 
-    inputs = sam3_processor(images=pillow_image, text="food", return_tensors="pt").to(torch_device)
+    inputs = sam3_processor(images=pillow_image, text=prompt, return_tensors="pt").to(torch_device)
 
     sam3 = get_model("sam3")
     with torch.no_grad():
@@ -475,20 +488,35 @@ def segment_food(pillow_image: Image.Image, threshold: float = 0.5) -> tuple[np.
     return union_mask, instance_scores_list, instance_masks_list
 
 
-def estimate_plate_depth(depth_map, food_mask) -> float:
-    bg_mask = food_mask == 0
-    if np.any(bg_mask):
-        bg_depths = depth_map[bg_mask]
-        plate_depth = float(np.median(bg_depths))
-        logger.info(
-            f"  PlateDepth | background pixels={int(bg_mask.sum())}  "
-            f"median={plate_depth:.3f}m  "
-            f"std={bg_depths.std():.4f}m"
-        )
-    else:
-        plate_depth = float(np.median(depth_map))
-        logger.warning(f"  PlateDepth | No background pixels... using full-image median ({plate_depth:.3f}m)")
-    return plate_depth
+def segment_food_items(pillow_image: Image.Image, entities: list[dict], threshold: float = 0.5) -> list[FoodItemResult]:
+    """Segment one mask per named food, prompting SAM 3 with each entity's noun phrase"""
+    items = []
+    for entity in entities:
+        prompt = entity["text"]
+        mask, scores, _ = segment_food(pillow_image, threshold=threshold, prompt=prompt)
+        if not scores:
+            logger.warning(f"  Items | '{prompt}' not found in image -> excluded from the total")
+            continue
+        items.append(FoodItemResult(prompt=prompt, mask=mask, score=float(np.mean(scores)), entity=entity))
+    return items
+
+
+def make_masks_disjoint(items: list[FoodItemResult]) -> None:
+    """
+    Give every contested pixel to the highest-scoring item, in place
+    e.g Prompting separately for "rice" and "frozen veg" on a mixed plate returns heavily overlapping masks, and summing their volumes would count the shared region twice
+    """
+    if not items:
+        return
+
+    claimed = np.zeros(items[0].mask.shape, dtype=bool)
+    for item in sorted(items, key=lambda i: i.score, reverse=True):
+        overlap_px = int(np.sum((item.mask > 0) & claimed))
+        if overlap_px:
+            logger.info(f"  Items | '{item.prompt}' overlapped {overlap_px} px already claimed -> reassigned")
+        kept = (item.mask > 0) & ~claimed
+        claimed |= kept
+        item.mask = kept.astype(np.uint8)
 
 
 def fit_support_plane(
@@ -726,7 +754,11 @@ def overlay_food_mask_b64(pil_image: Image.Image, food_mask: np.ndarray, scores:
 # Approach A - Monocular geometric
 # Single RGB image -> metric depth + food mask -> support plane -> height-field integral. Only geometry, no learned volume regression
 @app.post("/api/v1/estimate-volume", response_model=EstimationResponse)
-async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form("utensil")) -> EstimationResponse:
+async def volume_estimation(
+        file: UploadFile = File(...),
+        scale_ref: str = Form("utensil"),
+        text: str = Form("")
+) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline:
     1. Extract camera intrinsics from EXIF
@@ -755,6 +787,7 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Cannot decode image: {exc}")
 
+    entities = await extract_entities(text)
     actual_w, actual_h = pillow_image.size
 
     t_image_info_start = time.perf_counter()
@@ -785,11 +818,24 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
     )
 
     t_segmentation_start = time.perf_counter()
-    food_mask, mask_scores, _ = segment_food(pillow_image)  # (H, W) uint8 0/1
+    food_items = segment_food_items(pillow_image, entities)
+    if not food_items:
+        # No text, or nothing matched a named prompt -> one generic pass so the image path still works
+        generic_mask, generic_scores, _ = segment_food(pillow_image, prompt="food")
+        food_items = [FoodItemResult(prompt="food", mask=generic_mask, score=float(np.mean(generic_scores)) if generic_scores else 0.0)]
+
+    make_masks_disjoint(food_items)
+    food_items = [item for item in food_items if int(item.mask.sum()) > 0]
+
+    # Union drives the support-plane ring and the scale anchor, both of which are scene-wide properties
+    food_mask = np.zeros(food_items[0].mask.shape, dtype=np.uint8)
+    for item in food_items:
+        food_mask |= item.mask
+    mask_scores = [item.score for item in food_items]
+
     food_pixel_count = int(food_mask.sum())
     food_coverage_pct = food_pixel_count / food_mask.size * 100
-    logger.info(f"[C] Segmentation done. {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
-
+    logger.info(f"[C] Segmentation done. {len(food_items)} item(s), {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
 
 
     t_reference_start = time.perf_counter()
@@ -813,33 +859,53 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
 
         size_prior_scale = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
 
-        if USE_SIZE_PRIOR_SCALE:
-            depth_map = depth_map * size_prior_scale
-            logger.info(f"[B*] Used size-prior-anchored depth")
-        elif reference_correction != 0:
+        if reference_correction:
             depth_map = depth_map * reference_correction
-            logger.info(f"[B*] Used reference-anchored depth")
+            logger.info(f"[B*] Used reference-anchored depth x{reference_correction:.3f}")
+        elif USE_SIZE_PRIOR_SCALE and size_prior_scale is not None:
+            depth_map = depth_map * size_prior_scale
+            logger.info(f"[B*] Used size-prior-anchored depth x{size_prior_scale:.3f}")
         else:
-            logger.info(f"[B*] No reference scale found -> using depth as-is")
+            logger.info("[B*] No reference scale found -> using depth as-is")
         logger.info(f"[B*] Size prior found x{size_prior_scale:.3f}, reference anchored found x{reference_correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
 
-    t_plate_depth_start = time.perf_counter()
-    plate_depth_m = estimate_plate_depth(depth_map, food_mask)
-    logger.info(f"[D] Plate depth: {plate_depth_m:.3f}m ({time.perf_counter() - t_plate_depth_start:.3f}s) (deprecated now with plane fitting)")
-
     t_volume_start = time.perf_counter()
+    # One plane for the whole scene: every item sits on the same surface, and fitting per item would reference each food to a slightly different plate
     plane_n, plane_p0, _ = fit_support_plane(depth_map, food_mask, image_info)
-    volume_res = compute_volume(depth_map, food_mask, image_info, plane_n, plane_p0)
-    logger.info(f"[E] Volume Estimation Result: {volume_res.volume_cm3:.2f} cm^3. ({time.perf_counter() - t_volume_start:.3f}s)")
+
+    for item in food_items:
+        item_volume = compute_volume(depth_map, item.mask, image_info, plane_n, plane_p0)
+        item.volume_cm3 = item_volume.volume_cm3
+        item.geometry_confidence = item_volume.geometry_confidence
+        density_block = item.entity["match"]["density"] if item.entity and item.entity.get("match") else None
+        item.mass = volume_to_mass(item.volume_cm3, density_block)
+        logger.info(f"  Items | '{item.prompt}' -> {item.volume_cm3:.1f} cm^3, {item.mass['mass_g']:.1f} g ({item.mass['density_source']})" if item.mass else ", no density")
+
+    total_volume_cm3 = sum(item.volume_cm3 for item in food_items)
+    priced_items = [item for item in food_items if item.mass]
+    total_mass_g = round(sum(item.mass["mass_g"] for item in priced_items), 1) if priced_items else None
+
+    # Volume-weighted so one tiny low-confidence item does not drag down an otherwise ok total
+    geometry_confidence = float(np.average(
+        [item.geometry_confidence for item in food_items],
+        weights=[max(item.volume_cm3, 1e-6) for item in food_items],
+    ))
+
+    logger.info(
+        f"[E] Volume Estimation Result: {total_volume_cm3:.2f} cm^3 across {len(food_items)} item(s). "
+        f"({time.perf_counter() - t_volume_start:.3f}s)"
+    )
+    if len(priced_items) < len(food_items):
+        logger.warning(f"[E] Mass total covers {len(priced_items)}/{len(food_items)} items -> the rest had no density")
 
     confidence = (
-        "high" if volume_res.geometry_confidence >= 0.66 else
-        "medium" if volume_res.geometry_confidence >= 0.33 else
+        "high" if geometry_confidence >= 0.66 else
+        "medium" if geometry_confidence >= 0.33 else
         "low"
     )
     if confidence != "high":
         logger.warning(
-            f"[E] Geometry confidence {volume_res.geometry_confidence:.2f} ({confidence}) -> "
+            f"[E] Geometry confidence {geometry_confidence:.2f} ({confidence}) -> "
             f"view likely too oblique for a reliable single-view volume"
         )
 
@@ -859,17 +925,31 @@ async def volume_estimation(file: UploadFile = File(...), scale_ref: str = Form(
 
     return EstimationResponse(
         approach="monocular-geometric",
-        volume_cm3=volume_res.volume_cm3,
-        mass_g=None,
+        volume_cm3=round(total_volume_cm3, 2),
+        mass_g=total_mass_g,
         confidence=confidence,
         diagnostics={
             "food_pixel_count": food_pixel_count,
             "food_coverage_pct": food_coverage_pct,
-            "max_food_height_cm": volume_res.max_food_height_cm,
-            "mean_food_height_cm": volume_res.mean_food_height_cm,
-            "plate_depth_m": volume_res.plate_depth_m,
+            "plate_depth_m": float(plane_p0[2]),
             "intrinsics_source": image_info.source,
-            "debug_overlay_b64": seg_b64
+            "items": [
+                {
+                    "prompt": item.prompt,
+                    "matched_food": item.entity["match"]["name"] if item.entity and item.entity.get("match") else None,
+                    "volume_cm3": round(item.volume_cm3, 1),
+                    "mass_g": item.mass["mass_g"] if item.mass else None,
+                    "mass_interval_g": [item.mass["mass_low_g"], item.mass["mass_high_g"]] if item.mass else None,
+                    "density_source": item.mass["density_source"] if item.mass else None,
+                    "presentation": item.mass["presentation"] if item.mass else None,
+                    "coverage_pct": round(int(item.mask.sum()) / item.mask.size * 100, 2),
+                    "segmentation_score": round(item.score, 3),
+                    "geometry_confidence": item.geometry_confidence
+                }
+                for item in food_items
+            ],
+            "items_with_masses": len(priced_items),
+            "nlp_available": bool(entities)
         }
     )
 
