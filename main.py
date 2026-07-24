@@ -13,7 +13,6 @@ import torch.nn as nn
 import torchvision.models as models
 from PIL import Image
 from pillow_heif import register_heif_opener
-from sympy import true
 from torchvision import transforms
 
 from model_manage import register_loader, get_model
@@ -839,35 +838,31 @@ async def volume_estimation(
 
 
     t_reference_start = time.perf_counter()
+    scale_correction, scale_source = None, "none"
+
+    if scale_ref in ("auto", "utensil"):
+        # Each utensil is its own SAM 3 pass; averaging the ones that fire smooths per-utensil length error
+        utensil_corrections = [
+            correction for correction in (
+                reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
+                for utensil in REFERENCE_LENGTHS_M
+            ) if correction is not None
+        ]
+        if utensil_corrections:
+            scale_correction, scale_source = float(np.mean(utensil_corrections)), "utensil"
+
     if scale_ref == "checkerboard":
-        # Benchmarking path: anchor scale on the known-geometry checkerboard instead of a utensil
-        correction = checkerboard_scale_factor(pillow_image, depth_map, image_info)
-        if correction is not None:
-            depth_map = depth_map * correction
-            logger.info(f"[B*] Checkerboard-anchored depth x{correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
+        scale_correction = checkerboard_scale_factor(pillow_image, depth_map, image_info)
+        scale_source = "checkerboard" if scale_correction is not None else "none"
+    elif scale_ref == "size_prior" or (scale_ref == "auto" and scale_correction is None):
+        scale_correction = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
+        scale_source = "size_prior" if scale_correction is not None else "none"
+
+    if scale_correction is not None:
+        depth_map = depth_map * scale_correction
+        logger.info(f"[B*] Scale anchor '{scale_ref}' -> {scale_source} x{scale_correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
     else:
-        reference_scale_factors = []
-        for utensil in REFERENCE_LENGTHS_M.keys():
-            correction = reference_scale_factor(pillow_image, depth_map, image_info, utensil=utensil)
-            if correction is not None:
-                reference_scale_factors.append(correction)
-
-        reference_correction = 0
-
-        if reference_scale_factors:
-            reference_correction = np.mean(reference_scale_factors)
-
-        size_prior_scale = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, image_info)
-
-        if reference_correction:
-            depth_map = depth_map * reference_correction
-            logger.info(f"[B*] Used reference-anchored depth x{reference_correction:.3f}")
-        elif USE_SIZE_PRIOR_SCALE and size_prior_scale is not None:
-            depth_map = depth_map * size_prior_scale
-            logger.info(f"[B*] Used size-prior-anchored depth x{size_prior_scale:.3f}")
-        else:
-            logger.info("[B*] No reference scale found -> using depth as-is")
-        logger.info(f"[B*] Size prior found x{size_prior_scale:.3f}, reference anchored found x{reference_correction:.3f} ({time.perf_counter() - t_reference_start:.3f}s)")
+        logger.info(f"[B*] Scale anchor '{scale_ref}' found nothing -> using depth as-is ({time.perf_counter() - t_reference_start:.3f}s)")
 
     t_volume_start = time.perf_counter()
     # One plane for the whole scene: every item sits on the same surface, and fitting per item would reference each food to a slightly different plate
@@ -879,7 +874,10 @@ async def volume_estimation(
         item.geometry_confidence = item_volume.geometry_confidence
         density_block = item.entity["match"]["density"] if item.entity and item.entity.get("match") else None
         item.mass = volume_to_mass(item.volume_cm3, density_block)
-        logger.info(f"  Items | '{item.prompt}' -> {item.volume_cm3:.1f} cm^3, {item.mass['mass_g']:.1f} g ({item.mass['density_source']})" if item.mass else ", no density")
+        logger.info(
+            f"  Items | '{item.prompt}' -> {item.volume_cm3:.1f} cm^3"
+            + (f", {item.mass['mass_g']:.1f} g ({item.mass['density_source']})" if item.mass else ", no density")
+        )
 
     total_volume_cm3 = sum(item.volume_cm3 for item in food_items)
     priced_items = [item for item in food_items if item.mass]
@@ -933,6 +931,9 @@ async def volume_estimation(
             "food_coverage_pct": food_coverage_pct,
             "plate_depth_m": float(plane_p0[2]),
             "intrinsics_source": image_info.source,
+            "scale_ref": scale_ref,
+            "scale_source": scale_source,
+            "scale_factor": round(scale_correction, 4) if scale_correction is not None else None,
             "items": [
                 {
                     "prompt": item.prompt,

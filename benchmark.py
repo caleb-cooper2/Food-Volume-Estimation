@@ -1,6 +1,7 @@
 import argparse
 import csv
 import logging
+import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, asdict
@@ -33,6 +34,15 @@ ENDPOINTS = {
     "multi-view": "http://localhost:8000/api/v1/estimate-volume-multiview",
 }
 
+BENCHMARK_ARMS = {
+    "utensil_nlp": {"scale_ref": "utensil",    "use_text": True},
+    "utensil_notext": {"scale_ref": "utensil",    "use_text": False},
+    "sizeprior_nlp": {"scale_ref": "size_prior", "use_text": True},
+    "sizeprior_notext": {"scale_ref": "size_prior", "use_text": False},
+    "checkerboard": {"scale_ref": "checkerboard", "use_text": False}
+}
+
+
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
 
 DEFAULT_DENSITY_G_CM3 = 0.8  # only used to bridge units when a sample has no measured density
@@ -43,12 +53,15 @@ TILT_BUCKETS = ((0.0, 15.0, "overhead"), (15.0, 35.0, "mild"), (35.0, 999.0, "ob
 
 MIME_BY_SUFFIX = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".heic": "image/heic"}
 
-MANIFEST_FIELDS = ["sample_id", "tier", "images", "approaches", "gt_mass_g", "gt_volume_cm3",
-                   "density", "scale_ref", "ref_scale_cm_per_px", "ref_tilt_deg", "source"]
+CUSTOM_POSES = ("overhead", "tilt", "side_left", "side_right")
+CUSTOM_UTENSILS = ("fork", "knife", "spoon")
+
+MANIFEST_FIELDS = ["sample_id", "tier", "images", "approaches", "gt_mass_g", "gt_volume_cm3", "density", "scale_ref",
+                   "ref_scale_cm_per_px", "ref_tilt_deg", "source", "text", "pose", "utensil"]
 RESULT_FIELDS = [
-    "sample_id", "tier", "source", "approach", "ok",
-    "pred_mass_g", "pred_volume_cm3", "gt_mass_g", "gt_volume_cm3",
-    "density_used", "density_assumed", "ref_tilt_deg", "confidence", "error"
+    "sample_id", "tier", "source", "approach", "arm", "pose", "utensil", "ok", "pred_mass_g", "pred_volume_cm3",
+    "gt_mass_g", "gt_volume_cm3", "density_used", "density_assumed", "ref_tilt_deg", "confidence", "scale_source",
+    "scale_factor", "n_items", "error"
 ]
 
 
@@ -58,6 +71,9 @@ class ResultRow:
     tier: str
     source: str
     approach: str
+    arm: str
+    pose: str
+    utensil: str
     ok: bool
     pred_mass_g: Optional[float]
     pred_volume_cm3: Optional[float]
@@ -67,6 +83,9 @@ class ResultRow:
     density_assumed: bool
     ref_tilt_deg: Optional[float]
     confidence: Optional[str]
+    scale_source: str = ""
+    scale_factor: Optional[float] = None
+    n_items: Optional[int] = None
     error: str = ""
 
 
@@ -103,10 +122,10 @@ def file_tuple(path: Path):
     return path.name, path.read_bytes(), mime
 
 
-def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str) -> dict:
+def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str, text: str = "") -> dict:
     """
-    POST to deployed endpoint and returns EstimationResponse json. scale_ref (from manifest) tells the endpoint how to
-    anchor scale -> 'checkerboard' substitutes the utensil during benchmarking
+    POST to a deployed endpoint and return the EstimationResponse json. scale_ref selects the scale anchor, text supplies
+    the food description that drives the SAM 3 prompt and the density lookup
     """
     url = ENDPOINTS[approach]
     if approach in SINGLE_IMAGE_APPROACHES:
@@ -118,7 +137,7 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str)
             idx = np.linspace(0, len(image_paths) - 1, MULTIVIEW_MAX_FRAMES).round().astype(int)
             frames = [image_paths[i] for i in idx]
         files = [("files", file_tuple(p)) for p in frames]
-    resp = requests.post(url, files=files, data={"scale_ref": scale_ref}, timeout=REQUEST_TIMEOUT_S)
+    resp = requests.post(url, files=files, data={"scale_ref": scale_ref, "text": text}, timeout=REQUEST_TIMEOUT_S)
     resp.raise_for_status()
     return resp.json()
 
@@ -159,12 +178,12 @@ def r2(pred: np.ndarray, target: np.ndarray) -> float:
 
 
 # Run harness
-def already_done(out_path: Path) -> set[tuple[str, str]]:
-    """(sample_id, approach) pairs already scored, so an interrupted run resumes instead of re-inferring"""
+def already_done(out_path: Path) -> set[tuple[str, str, str]]:
+    """(sample_id, approach, arm) combinations already scored, so an interrupted run resumes"""
     if not out_path.exists():
         return set()
     with out_path.open() as f:
-        return {(r["sample_id"], r["approach"]) for r in csv.DictReader(f)}
+        return {(r["sample_id"], r["approach"], r.get("arm", "")) for r in csv.DictReader(f)}
 
 
 def run_benchmark(args) -> None:
@@ -188,7 +207,6 @@ def run_benchmark(args) -> None:
             sample_id, tier, source = row["sample_id"], row["tier"], row["source"]
             gt_mass, gt_volume = as_float(row["gt_mass_g"]), as_float(row["gt_volume_cm3"])
             density, ref_tilt = as_float(row["density"]), as_float(row["ref_tilt_deg"])
-            scale_ref = row["scale_ref"] or "utensil"
             image_paths = resolve_images(row["images"])
             approaches = [a.strip() for a in row["approaches"].split(";") if a.strip()]
 
@@ -197,40 +215,51 @@ def run_benchmark(args) -> None:
                 continue
 
             for approach in approaches:
-                if (sample_id, approach) in done:
-                    continue
-                result = score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt, scale_ref)
-                writer.writerow({k: v for k, v in asdict(result).items() if k in RESULT_FIELDS})
-                f.flush()  # flush per row so an interrupted run keeps everything up to here
+                for arm in args.arms:
+                    if (sample_id, approach, arm) in done:
+                        continue
+                    result = score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass, gt_volume, density, ref_tilt)
+                    writer.writerow({k: v for k, v in asdict(result).items() if k in RESULT_FIELDS})
+                    f.flush()  # flush per row so an interrupted run keeps everything up to here
 
     logger.info(f"Done in {time.perf_counter() - t0:.0f}s. Results -> {out_path}")
     summarise(out_path)
 
 
-def score_one(sample_id, tier, source, approach, image_paths, gt_mass, gt_volume, density, ref_tilt, scale_ref) -> ResultRow:
-    try:
-        resp = call_volume_endpoint(approach, image_paths, scale_ref)
-    except Exception as e:
-        logger.error(f"{sample_id} [{approach}]: request failed ({e})")
-        return ResultRow(sample_id, tier, source, approach, False, None, None, gt_mass, gt_volume, None, False, ref_tilt, None, str(e))
+def score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass, gt_volume, density, ref_tilt) -> ResultRow:
+    arm_config = BENCHMARK_ARMS[arm]
+    scale_ref = arm_config["scale_ref"]
+    text = row["text"] if arm_config["use_text"] else ""
+    pose, utensil = row.get("pose", ""), row.get("utensil", "")
 
+    try:
+        resp = call_volume_endpoint(approach, image_paths, scale_ref, text)
+    except Exception as e:
+        logger.error(f"{sample_id} [{approach}/{arm}]: request failed ({e})")
+        return ResultRow(sample_id, tier, source, approach, arm, pose, utensil, False,
+                         None, None, gt_mass, gt_volume, None, False, ref_tilt, None, error=str(e))
+
+    diagnostics = resp.get("diagnostics") or {}
     pred_mass, pred_volume, density_used, assumed = bridge_units(resp, density)
     logger.info(
-        f"{sample_id} [{approach}]: mass={safe_format(pred_mass)}g vol={safe_format(pred_volume)}cm3 "
-        f"(gt mass={safe_format(gt_mass)} vol={safe_format(gt_volume)}) tilt={safe_format(ref_tilt)} conf={resp.get('confidence')}"
+        f"{sample_id} [{approach}/{arm}] {pose}/{utensil}: vol={safe_format(pred_volume)}cm3 "
+        f"mass={safe_format(pred_mass)}g (gt vol={safe_format(gt_volume)} mass={safe_format(gt_mass)}) "
+        f"anchor={diagnostics.get('scale_source')} conf={resp.get('confidence')}"
     )
     return ResultRow(
-        sample_id, tier, source, approach, True,
+        sample_id, tier, source, approach, arm, pose, utensil, True,
         safe_round(pred_mass), safe_round(pred_volume), gt_mass, gt_volume,
-        round(density_used, 3), assumed, ref_tilt, resp.get("confidence")
+        round(density_used, 3), assumed, ref_tilt, resp.get("confidence"),
+        scale_source=diagnostics.get("scale_source", ""),
+        scale_factor=diagnostics.get("scale_factor"),
+        n_items=len(diagnostics.get("items") or []),
     )
-
 
 # Reporting
 def summarise(out_path: Path) -> None:
     """
-    Group by (source, approach) and report MAE/MAPE/bias/R2 in each unit, then a second pass that stratifies the monocular-geometric volume error
-    by checkerboard tilt bucket -> the benefit of the angle reference
+    One table per axis that actually varies: approaches when several were run (SimpleFood45 runs all
+    three), arms when several were run (the custom A/B), then the paired NLP effect
     """
     with out_path.open() as f:
         rows = [r for r in csv.DictReader(f) if r["ok"] == "True"]
@@ -238,45 +267,92 @@ def summarise(out_path: Path) -> None:
         logger.warning("No successful results to summarise")
         return
 
-    logger.info("=" * 96)
-    logger.info(f"{'source':<14}{'approach':<22}{'unit':<12}{'n':>4}{'MAE':>10}{'MAPE%':>9}{'bias%':>9}{'R2':>8}  {'note':<12}")
-    logger.info("-" * 96)
-    groups: dict[tuple[str, str], list[dict]] = {}
-    for r in rows:
-        groups.setdefault((r["source"], r["approach"]), []).append(r)
-
-    for (source, approach), grp in sorted(groups.items()):
-        for unit, pred_key, gt_key in (("mass_g", "pred_mass_g", "gt_mass_g"), ("volume_cm3", "pred_volume_cm3", "gt_volume_cm3")):
-            pairs = [(float(r[pred_key]), float(r[gt_key]), r["density_assumed"] == "True")
-                     for r in grp if r[pred_key] and r[gt_key]]
-            if not pairs:
-                continue
-            pred = np.array([p for p, _, _ in pairs])
-            gt = np.array([g for _, g, _ in pairs])
-            note = "density-assumed" if any(a for _, _, a in pairs) else ""
-            logger.info(
-                f"{source:<14}{approach:<22}{unit:<12}{len(pairs):>4}"
-                f"{mae(pred, gt):>10.1f}{mape(pred, gt):>9.1f}{bias_pct(pred, gt):>9.1f}{r2(pred, gt):>8.2f}  {note:<12}"
-            )
-    logger.info("=" * 96)
-    summarise_by_tilt(rows)
+    if len({r["approach"] for r in rows}) > 1:
+        summarise_by_approach(rows)
+    if len({r["arm"] for r in rows}) > 1:
+        summarise_by_arm(rows)
+    summarise_nlp_effect(rows)
 
 
-def summarise_by_tilt(rows: list[dict]) -> None:
-    """monocular-geometric volume error vs checkerboard camera tilt -> does obliqueness inflate error?"""
-    geo = [r for r in rows if r["approach"] == "monocular-geometric" and r["pred_volume_cm3"] and r["gt_volume_cm3"] and r["ref_tilt_deg"]]
-    if not geo:
-        return
-    logger.info(f"monocular-geometric volume by checkerboard tilt:")
-    logger.info(f"{'tilt bucket':<20}{'n':>4}{'MAPE%':>9}{'bias%':>9}")
-    for lo, hi, name in TILT_BUCKETS:
-        bucket = [r for r in geo if lo <= float(r["ref_tilt_deg"]) < hi]
-        if not bucket:
+def summarise_by_approach(rows: list[dict]) -> None:
+    """
+    Approach comparison, for datasets that run more than one
+    """
+    header = f"{'approach':<22}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'R2(mass)':>10}"
+    logger.info("=" * len(header))
+    logger.info(header)
+    logger.info("-" * len(header))
+
+    for approach in sorted({r["approach"] for r in rows}):
+        grp = [r for r in rows if r["approach"] == approach]
+        volume_pred, volume_gt = paired_arrays(grp, "pred_volume_cm3", "gt_volume_cm3")
+        mass_pred, mass_gt = paired_arrays(grp, "pred_mass_g", "gt_mass_g")
+
+        line = f"{approach:<22}{len(grp):>4}"
+        line += f"{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}" if len(volume_pred) else f"{'-':>9}{'-':>9}"
+        line += f"{mape(mass_pred, mass_gt):>9.1f}{r2(mass_pred, mass_gt):>10.2f}" if len(mass_pred) else f"{'-':>9}{'-':>10}"
+        logger.info(line)
+    logger.info("=" * len(header))
+
+
+def summarise_by_arm(rows: list[dict]) -> None:
+    """A/B testing volume errors, broken out by pose. Mass is shown only for the arms that supply text, because without it,
+     the endpoint returns no density and the mass would be seperated from ground truth"""
+    header = f"{'arm':<18}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}" + "".join(f"{p:>12}" for p in CUSTOM_POSES)
+    logger.info("=" * len(header))
+    logger.info(header)
+    logger.info("-" * len(header))
+
+    for arm in sorted({r["arm"] for r in rows}):
+        grp = [r for r in rows if r["arm"] == arm]
+        volume_pred, volume_gt = paired_arrays(grp, "pred_volume_cm3", "gt_volume_cm3")
+        line = f"{arm:<18}{len(grp):>4}{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}"
+
+        mass_pred, mass_gt = paired_arrays(grp, "pred_mass_g", "gt_mass_g") if BENCHMARK_ARMS[arm]["use_text"] else ([], [])
+        line += f"{mape(mass_pred, mass_gt):>9.1f}" if len(mass_pred) else f"{'-':>9}"
+
+        for pose in CUSTOM_POSES:
+            pose_pred, pose_gt = paired_arrays([r for r in grp if r["pose"] == pose], "pred_volume_cm3", "gt_volume_cm3")
+            line += f"{mape(pose_pred, pose_gt):>12.1f}" if len(pose_pred) else f"{'-':>12}"
+        logger.info(line)
+    logger.info("=" * len(header))
+
+
+def paired_arrays(rows: list[dict], pred_key: str, gt_key: str) -> tuple[np.ndarray, np.ndarray]:
+    """Prediction and ground-truth arrays for the rows where both values are present"""
+    pairs = [(float(r[pred_key]), float(r[gt_key])) for r in rows if r[pred_key] and r[gt_key]]
+    return np.array([p for p, _ in pairs]), np.array([g for _, g in pairs])
+
+
+def summarise_nlp_effect(rows: list[dict]) -> None:
+    """Paired per-image volume error with and without the NLP text, holding the scale anchor fixed"""
+    errors = {
+        (r["sample_id"], r["arm"]):
+            abs(float(r["pred_volume_cm3"]) - float(r["gt_volume_cm3"])) / max(float(r["gt_volume_cm3"]), 1.0) * 100.0
+        for r in rows if r["pred_volume_cm3"] and r["gt_volume_cm3"]
+    }
+
+    for anchor in ("utensil", "sizeprior"):
+        pairs = [(errors[(sample_id, f"{anchor}_nlp")], errors[(sample_id, f"{anchor}_notext")])
+                 for sample_id, arm in errors
+                 if arm == f"{anchor}_nlp" and (sample_id, f"{anchor}_notext") in errors]
+        if not pairs:
             continue
-        pred = np.array([float(r["pred_volume_cm3"]) for r in bucket])
-        gt = np.array([float(r["gt_volume_cm3"]) for r in bucket])
-        logger.info(f"{name + f' ({lo:.0f}-{hi:.0f} deg)':<20}{len(bucket):>4}{mape(pred, gt):>9.1f}{bias_pct(pred, gt):>9.1f}")
-    logger.info("=" * 96)
+        differences = np.array([with_text - without_text for with_text, without_text in pairs])  # negative = text helped
+        n_better = int(np.sum(differences < 0))
+        logger.info(
+            f"NLP effect ({anchor}): {differences.mean():+.1f}pp over {len(pairs)} pairs, "
+            f"{n_better}/{len(pairs)} better, sign p={sign_test_p(n_better, len(pairs)):.3f}"
+        )
+
+
+def sign_test_p(n_better: int, n_total: int) -> float:
+    """Two-sided sign-test p-value, so the paired comparison has a number attached without scipy"""
+    if n_total == 0:
+        return float("nan")
+    tail = min(n_better, n_total - n_better)
+    cumulative = sum(math.comb(n_total, k) for k in range(tail + 1))
+    return min(1.0, 2.0 * cumulative / 2 ** n_total)
 
 
 def safe_format(x: Optional[float]) -> str:
@@ -359,12 +435,77 @@ def build_simplefood45_manifest(args) -> None:
                     "scale_ref": "checkerboard",
                     "ref_scale_cm_per_px": pose.scale_cm_per_px if pose.found else "",
                     "ref_tilt_deg": pose.tilt_deg if pose.found else "",
-                    "source": "simplefood45",
+                    "source": "simplefood45"
                 })
                 n_items += 1
-    logger.info(f"Wrote {n_items} items across {len(groups)} GT groups "
-                f"({n_missing} labelled images not found on disk, {n_no_board} items without a detected board) -> {out_path}")
+    logger.info(f"Wrote {n_items} items across {len(groups)} GT groups ({n_missing} labelled images not found on disk, {n_no_board} items without a detected board) -> {out_path}")
 
+
+def parse_capture(stem: str) -> tuple[str, str]:
+    """Pull the pose and the in-frame utensil out of a filename like 'side_left_fork'"""
+    lower = stem.lower()
+    pose = next((p for p in CUSTOM_POSES if lower.startswith(p)), "")
+    utensil = next((u for u in CUSTOM_UTENSILS if u in lower), "")
+    return pose, utensil
+
+
+def build_custom_manifest(args) -> None:
+    """One manifest row per image. Ground truth (mass, volume, density) is per folder and repeats across that folder's images"""
+    labels_path = Path(args.labels)
+    images_root = Path(args.images_root)
+
+    with labels_path.open() as file:
+        label_rows = [row for row in csv.reader(file) if any(cell.strip() for cell in row)][1:]
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n_rows, n_missing_folders = 0, 0
+    with out_path.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=MANIFEST_FIELDS)
+        writer.writeheader()
+
+        for label_row in label_rows:
+            folder_id, food_label = label_row[0].strip(), label_row[1].strip()
+            gt_mass_g, gt_volume_cm3 = float(label_row[2]), float(label_row[4])
+
+            # "mixed" marks a combination meal where no single density applies
+            raw_density = label_row[3].strip().lower()
+            density = "" if raw_density in ("mixed", "") else round(float(raw_density), 4)
+
+            folder = images_root / folder_id
+            if not folder.is_dir():
+                logger.warning(f"{folder_id}: folder not found at {folder}, skipping")
+                n_missing_folders += 1
+                continue
+
+            for image_path in sorted(folder.iterdir()):
+                if image_path.suffix.lower() not in MIME_BY_SUFFIX:
+                    continue
+                pose, utensil = parse_capture(image_path.stem)
+                if not pose:
+                    logger.warning(f"{folder_id}/{image_path.name}: unrecognised pose in filename, skipping")
+                    continue
+
+                writer.writerow({
+                    "sample_id": f"{folder_id}_{image_path.stem}",
+                    "tier": "custom",
+                    "images": str(image_path),
+                    "approaches": args.approaches,
+                    "gt_mass_g": round(gt_mass_g, 2),
+                    "gt_volume_cm3": round(gt_volume_cm3, 2),
+                    "density": density,
+                    "scale_ref": "",           # the arm sets this, not the manifest
+                    "ref_scale_cm_per_px": "",
+                    "ref_tilt_deg": "",
+                    "source": "custom",
+                    "text": food_label,
+                    "pose": pose,
+                    "utensil": utensil,
+                })
+                n_rows += 1
+
+    logger.info(f"Wrote {n_rows} image rows from {len(label_rows)} folders ({n_missing_folders} folders missing on disk) -> {out_path}")
 
 def find_columns(cols_lower: dict, hints: list[str]) -> Optional[str]:
     for hint in hints:
@@ -382,14 +523,22 @@ if __name__ == "__main__":
     parser_run.add_argument("--manifest", type=str, required=True)
     parser_run.add_argument("--out", type=str, default="./data/benchmark_results.csv")
     parser_run.add_argument("--limit", type=int, default=0)
+    parser_run.add_argument("--arms", nargs="+", default=list(BENCHMARK_ARMS), choices=list(BENCHMARK_ARMS))
     parser_run.set_defaults(func=run_benchmark)
 
     parser_simplefood45 = sub.add_parser("build-simplefood45")
-    parser_simplefood45.add_argument("--labels", type=str, required=True)
-    parser_simplefood45.add_argument("--images_root", type=str, default="")
+    parser_simplefood45.add_argument("--labels", type=str, default="./data/ordered_dataset/labels.csv")
+    parser_simplefood45.add_argument("--images_root", type=str, default="./data/ordered_dataset")
     parser_simplefood45.add_argument("--out", type=str, default="./data/benchmark_manifest_simplefood45.csv")
     parser_simplefood45.add_argument("--approaches", type=str, default="monocular-geometric;deep-learning;multi-view")
     parser_simplefood45.set_defaults(func=build_simplefood45_manifest)
+
+    parser_custom = sub.add_parser("build-custom")
+    parser_custom.add_argument("--labels", type=str, default="./data/custom_dataset/label-info.csv")
+    parser_custom.add_argument("--images_root", type=str, default="./data/custom_dataset")
+    parser_custom.add_argument("--out", type=str, default="./data/benchmark_manifest_custom.csv")
+    parser_custom.add_argument("--approaches", type=str, default="monocular-geometric")
+    parser_custom.set_defaults(func=build_custom_manifest)
 
     args = parser.parse_args()
     args.func(args)
