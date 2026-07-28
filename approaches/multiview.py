@@ -1,5 +1,14 @@
+"""
+Approach C - Multi-view
+
+Several RGB images -> VGGT world-point reconstruction, scale-anchored to a reference utensil (falling back to DepthPro
+metric depth over the background) -> per-instance / fused-blob mesh volume.
+
+VGGT is a pretty sizeable dependency, so this module is not imported by main.py. Serve it with
+`uvicorn approaches.multiview:app`, which then turns this endpoint on
+"""
+
 import io
-import logging
 import os
 import tempfile
 
@@ -13,23 +22,23 @@ from fastapi import File, UploadFile, HTTPException, Form
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
-from main import EstimationResponse, estimate_depth, segment_food, segment_reference_object, measure_mask_endpoints, REFERENCE_LENGTHS_M, app
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M
-from model_manage import register_loader, get_model, preload_all
+from depth import estimate_depth
+from geometry import M3_TO_CM3, measure_mask_endpoints
+from logging_config import get_logger
+from main import app
+from model_manage import register_loader, get_model, preload_all, device
+from scale import REFERENCE_LENGTHS_M
+from schemas import EstimationResponse
+from segmentation import segment_food, segment_reference_object
 
-logger = logging.getLogger(__name__)
-
-if torch.cuda.is_available():
-    device = "cuda"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    device = "mps"
-else:
-    device = "cpu"
+logger = get_logger(__name__)
 
 dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else torch.float16
 
 SEMANTIC_CV_FLOOR = 0.15  # rough uncertainty we give the geometric estimate when fusing with the NLP prior
 INSTANCE_COLLAPSE_RATIO = 0.2  # instance < 20% of the fused blob => per-instance meshing collapsed (single-view slab)
+MAX_IMAGES = 10
 
 register_loader("vggt", lambda: VGGT.from_pretrained("facebook/VGGT-1B"))
 
@@ -44,6 +53,7 @@ def load_and_preprocess_images_from_pil(pil_images: list[Image.Image]) -> torch.
             image.save(path)
             paths.append(path)
         return load_and_preprocess_images(paths)
+
 
 def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
     """
@@ -66,7 +76,7 @@ def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
         faces=np.asarray(mesh.triangles)
     )
     volume_m3 = abs(trimesh_result.volume) # it's in m3 as that's what depth map + vggt provides
-    return volume_m3 * 1_000_000.0  # computer to cm^3
+    return volume_m3 * M3_TO_CM3
 
 
 def sample_world_point(world_points: np.ndarray, row: float, col: float, window: int = 3
@@ -258,10 +268,6 @@ def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, st
     return instance_cm3, "instance"
 
 
-# Approach C - Multi-view
-# Several RGB images -> VGGT world-point reconstruction, scale-anchored to a reference utensil (falling back to DepthPro metric depth over the background)
-# -> per-instance / fused-blob mesh volume.
-
 @app.on_event("startup")
 def startup_event():
     preload_all()
@@ -273,8 +279,8 @@ async def volume_estimation_multiview(
         scale_ref: str = Form("utensil"),  # 'checkerboard' anchors on the SimpleFood45 board (benchmarking)
 ) -> EstimationResponse:
     # no minimum image amount as vggt outlines that single image performance is still acceptable?
-    if len(files) > 10:
-        raise HTTPException(400, "Maximum 10 images supported")
+    if len(files) > MAX_IMAGES:
+        raise HTTPException(400, f"Maximum {MAX_IMAGES} images supported")
 
     pil_images = []
     for f in files:
@@ -319,16 +325,13 @@ async def volume_estimation_multiview(
     if scale_ref == "checkerboard":
         scale = checkerboard_scale_from_reconstruction(primary, world_points)
     else:
-        reference_scale_factors = []
-        for utensil in REFERENCE_LENGTHS_M.keys():
-            correction = reference_scale_from_reconstruction(primary, world_points, utensil=utensil)
-            if correction is not None:
-                reference_scale_factors.append(correction)
-
-        if reference_scale_factors:
-            scale = np.mean(reference_scale_factors)
-        else:
-            scale = None
+        reference_scale_factors = [
+            c for c in (
+                reference_scale_from_reconstruction(primary, world_points, utensil=utensil)
+                for utensil in REFERENCE_LENGTHS_M
+            ) if c is not None
+        ]
+        scale = float(np.mean(reference_scale_factors)) if reference_scale_factors else None
 
     if scale is None:
         # Anchor VGGT against DepthPro's metric depth over the background, resized to match VGGT
