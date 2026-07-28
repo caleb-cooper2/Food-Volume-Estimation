@@ -377,8 +377,7 @@ async def volume_estimation_multiview(
             "volume_source": volume_source,
             "volume_instance_cm3": round(volume_instance_cm3, 2),
             "volume_blob_cm3": round(volume_blob_cm3, 2),
-            "scale": round(scale, 4),
-            "semantic_fusion": None
+            "scale": round(scale, 4)
         }
     )
 

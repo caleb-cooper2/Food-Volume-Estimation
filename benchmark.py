@@ -30,7 +30,7 @@ API_BASE_URL = os.environ.get("VOLUME_API_URL", "http://localhost:8001")
 ENDPOINTS = {
     "monocular-geometric": f"{API_BASE_URL}/api/v1/estimate-volume",
     "deep-learning": f"{API_BASE_URL}/api/v1/estimate-volume-dl",
-    "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview",
+    "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview"
 }
 
 BENCHMARK_ARMS = {
