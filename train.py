@@ -12,7 +12,6 @@ Phase 2 (epochs warmup_epochs+1–total): Unfreeze backbone with 10x lower LR th
 """
 
 import argparse
-import logging
 import random
 import re
 import time
@@ -29,12 +28,9 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 SIDE_ANGLE_PATTERN = re.compile(r"^camera_([ABCD])frame(\d{3})\.jpeg$")
 MAX_FOOD_HEIGHT_M = 0.15

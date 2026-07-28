@@ -1,12 +1,13 @@
 import gc
-import logging
 import threading
 from collections import OrderedDict
 from typing import Optional
 
 import torch
 
-logger = logging.getLogger(__name__)
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 if torch.cuda.is_available():
     device = "cuda"

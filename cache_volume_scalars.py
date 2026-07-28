@@ -1,19 +1,17 @@
 import argparse
 import csv
-import logging
 import time
 from pathlib import Path
 
 from PIL import Image
 
-from main import (CameraInfo, segment_food, estimate_depth, fit_support_plane, compute_volume)
+from depth import estimate_depth
+from geometry import fit_support_plane, compute_volume
+from logging_config import get_logger
+from schemas import CameraInfo
+from segmentation import segment_food
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 CSV_FIELDS = ["dish_id", "volume_cm3", "food_coverage_pct", "plane_inliers", "mean_height_cm", "max_height_cm", "clipped_high_pct", "geometry_confidence"]
 
@@ -28,7 +26,7 @@ def already_cached(out_path: Path) -> set[str]:
 
 def volume_for_dish(pil_image: Image.Image) -> dict:
     """
-    Run the inference geometry on one overhead RGB -> volume scalar + QC fields. Mirrors main.py's /estimate-volume endpoint: SAM 3 mask -> DepthPro metric
+    Run the inference geometry on one overhead RGB -> volume scalar + QC fields. Mirrors the /estimate-volume endpoint: SAM 3 mask -> DepthPro metric
     depth+focal -> support-plane fit -> height integration, so the training scalar and the deployed scalar come out of the same code.
     """
     mask, scores, _ = segment_food(pil_image)

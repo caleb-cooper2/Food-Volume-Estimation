@@ -1,15 +1,11 @@
-import logging
 import os
 import httpx
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+from logging_config import get_logger
 
-NLP_URL = os.environ.get("NLP_URL", "http://localhost:8001")
+logger = get_logger(__name__)
+
+NLP_URL = os.environ.get("NLP_URL", "http://localhost:8000")
 NLP_TIMEOUT = float(os.environ.get("NLP_TIMEOUT", "30.0"))
 
 async def extract_entities(text):

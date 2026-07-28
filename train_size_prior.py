@@ -5,7 +5,6 @@ CLIP trunk stays frozen
 """
 
 import argparse
-import logging
 import random
 import time
 from pathlib import Path
@@ -18,14 +17,10 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from transformers import CLIPModel, CLIPProcessor
 
+from logging_config import get_logger
 from scale_prior import SizePriorHead, CLIP_MODEL_NAME
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def load_footprint_cache(path: str) -> dict[str, float]:

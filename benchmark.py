@@ -1,7 +1,7 @@
 import argparse
 import csv
-import logging
 import math
+import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass, asdict
@@ -13,13 +13,9 @@ import numpy as np
 import requests
 
 from checkerboard import detect_pose
+from logging_config import get_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # Benchmark for the three approaches using deployed HTTP endpoints, testing the path the phone would use
@@ -28,10 +24,13 @@ logger = logging.getLogger(__name__)
 # We use the checkerboard tilt as ground truth to stratify error by view obliquity (does the geometric approach degrade as the paper's single-axis assumption predicts,
 # and does its own geometry_confidence track the real tilt?)
 
+# All three routes live on one app, so one base URL covers them. Serve it with `uvicorn approaches.multiview:app`
+API_BASE_URL = os.environ.get("VOLUME_API_URL", "http://localhost:8001")
+
 ENDPOINTS = {
-    "monocular-geometric": "http://localhost:8000/api/v1/estimate-volume",
-    "deep-learning": "http://localhost:8000/api/v1/estimate-volume-dl",
-    "multi-view": "http://localhost:8000/api/v1/estimate-volume-multiview",
+    "monocular-geometric": f"{API_BASE_URL}/api/v1/estimate-volume",
+    "deep-learning": f"{API_BASE_URL}/api/v1/estimate-volume-dl",
+    "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview",
 }
 
 BENCHMARK_ARMS = {

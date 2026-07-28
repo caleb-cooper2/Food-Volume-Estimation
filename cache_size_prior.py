@@ -1,20 +1,18 @@
 import argparse
 import csv
-import logging
 import time
 from pathlib import Path
 
 from PIL import Image
 
-from main import CameraInfo, segment_food, estimate_depth, metric_footprint_diameter_cm
+from depth import estimate_depth
+from geometry import metric_footprint_diameter_cm
+from logging_config import get_logger
+from schemas import CameraInfo
+from segmentation import segment_food
 from train import load_overhead_depth_m
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 CSV_FIELDS = ["dish_id", "footprint_cm", "food_coverage_pct"]
 

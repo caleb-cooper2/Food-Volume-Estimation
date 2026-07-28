@@ -1,10 +1,6 @@
-import logging
-
 import torch
 import torch.nn as nn
 from PIL import Image
-
-logger = logging.getLogger(__name__)
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch16"
 CLIP_FEATURE_DIMENSIONS = 512 # image-projection dimensions of ViT-B/16
