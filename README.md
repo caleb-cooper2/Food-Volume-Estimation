@@ -6,7 +6,7 @@ A pipeline server for processing and estimating the volume of food images taken 
 
 Three approaches have been investigated, each as its own endpoint:
 
-- **Monocular geometric** (`approaches/monocular.py`) -> single RGB image. Metric depth (DepthPro) + food mask (SAM 3), a support plane fitted to the surface the food sits on, then the volume integrated as a height field above that plane. Densities from the NLP server turn that volume into a mass
+- **Monocular geometric** (`approaches/monocular.py`) -> single RGB image. Metric depth (DepthPro) + food mask (SAM 3), a support plane fitted to the surface the food sits on, then the volume integrated as a height field above that plane. Densities from the NLP server turn that volume into a mass, and its nutrients get rescaled to that mass
 - **Deep learning** (`approaches/deep_learning.py`) -> single RGB image through the ConvNeXt-Tiny model trained on Nutrition5k (see [Training](#training-the-volume-estimation-model)). Predicts mass directly
 - **Multi-view** (`approaches/multiview.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a watertight mesh volume per food instance (or the fused multi-view blob when per-instance meshing collapses)
 
@@ -86,7 +86,7 @@ uvicorn approaches.multiview:app --reload --host 0.0.0.0 --port 8001
 VGGT-1B (~5GB) is downloaded from Hugging Face on first run.
 
 ### Connect the NLP Server
-The monocular endpoint calls the `unstructured-food-input` server to turn the user's text into food names (which prompt SAM 3 per item) and densities (which turn volume into mass). It's optional, without it the endpoint segments a single generic `food` mask and returns volume only.
+The monocular endpoint calls the `unstructured-food-input` server to turn the user's text into food names (which prompt SAM 3 per item), densities (which turn volume into mass), and nutrients (which get rescaled from the text-implied grams to the photo-estimated `mass_g`). It's optional, without it the endpoint segments a single generic `food` mask and returns volume only.
 
 It's expected on `http://localhost:8000`, override with `NLP_URL` if it's somewhere else
 
@@ -235,7 +235,7 @@ Monocular geometric. `multipart/form-data`:
 - `scale_ref` -> `utensil` (default) | `size_prior` | `checkerboard` | `auto`
 - `text` -> optional, what the user typed. Goes to the NLP server for the per-item SAM 3 prompts and densities
 
-`mass_g` is only filled for the items the NLP server had a density for, so it's `null` without `text`.
+`mass_g` is only filled for the items the NLP server had a density for, so it's `null` without `text`. `nutrients` follows the same rule: it's only filled where `mass_g` is.
 
 ```json
 "diagnostics": {
@@ -247,6 +247,15 @@ Monocular geometric. `multipart/form-data`:
   "scale_source": "utensil",
   "scale_factor": 1.083,
   "items_with_masses": 2,
+  "items_with_nutrients": 2,
+  "total_nutrients": {
+    "energy_kj": 1084.3,
+    "protein_g": 6.8,
+    "fat_g": 1.2,
+    "carbs_g": 58.4,
+    "fibre_g": 3.1,
+    "sodium_mg": 412.0
+  },
   "nlp_available": true,
   "items": [
     {
@@ -257,6 +266,14 @@ Monocular geometric. `multipart/form-data`:
       "mass_interval_g": [128.4, 181.6],
       "density_source": "measured",
       "presentation": null,
+      "nutrients": {
+        "energy_kj": 891.1,
+        "protein_g": 4.9,
+        "fat_g": 0.5,
+        "carbs_g": 47.3,
+        "fibre_g": 1.6,
+        "sodium_mg": 305.4
+      },
       "coverage_pct": 9.1,
       "segmentation_score": 0.881,
       "geometry_confidence": 0.94
@@ -266,6 +283,7 @@ Monocular geometric. `multipart/form-data`:
 ```
 
 - `scale_source` -> the anchor that actually got used, `none` when they all failed and the raw depth was used as-is
+- `total_nutrients` -> sum of `items[*].nutrients` across items that have one, `null` when none do 
 
 ### `POST /api/v1/estimate-volume-dl`
 Deep learning. Same single-`file` request. Fills `mass_g` only, with `diagnostics` empty. Needs a trained checkpoint.

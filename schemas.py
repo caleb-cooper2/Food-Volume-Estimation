@@ -50,3 +50,4 @@ class FoodItemResult:
     volume_cm3: float = 0.0
     geometry_confidence: float = 0.0
     mass: Optional[dict] = None # volume_to_mass output, None when no density was available
+    nutrients: Optional[dict] = None # entity's NLP nutrients rescaled to mass_g, None when no mass was available

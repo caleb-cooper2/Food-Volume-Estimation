@@ -18,7 +18,7 @@ from nlp_client import extract_entities
 from scale import resolve_scale_correction
 from schemas import CameraInfo, EstimationResponse, FoodItemResult
 from segmentation import segment_food, segment_food_items, make_masks_disjoint
-from volume_to_mass import volume_to_mass
+from volume_to_mass import scale_nutrients, volume_to_mass
 
 logger = get_logger(__name__)
 
@@ -114,6 +114,12 @@ async def volume_estimation(
         item.geometry_confidence = item_volume.geometry_confidence
         density_block = item.entity["match"]["density"] if item.entity and item.entity.get("match") else None
         item.mass = volume_to_mass(item.volume_cm3, density_block)
+        if item.mass and item.entity and item.entity.get("match"):
+            item.nutrients = scale_nutrients(
+                item.entity["match"].get("nutrients"),
+                item.entity.get("grams"),
+                item.mass["mass_g"]
+            )
         logger.info(
             f"  Items | '{item.prompt}' -> {item.volume_cm3:.1f} cm^3"
             + (f", {item.mass['mass_g']:.1f} g ({item.mass['density_source']})" if item.mass else ", no density")
@@ -122,6 +128,15 @@ async def volume_estimation(
     total_volume_cm3 = sum(item.volume_cm3 for item in food_items)
     priced_items = [item for item in food_items if item.mass]
     total_mass_g = round(sum(item.mass["mass_g"] for item in priced_items), 1) if priced_items else None
+
+    nutrient_items = [item for item in food_items if item.nutrients]
+    total_nutrients = None
+    if nutrient_items:
+        total_nutrients = {}
+        for item in nutrient_items:
+            for nutrient, value in item.nutrients.items():
+                if value is not None:
+                    total_nutrients[nutrient] = round(total_nutrients.get(nutrient, 0.0) + value, 2)
 
     # Volume-weighted so one tiny low-confidence item does not drag down an otherwise ok total
     geometry_confidence = float(np.average(
@@ -175,6 +190,7 @@ async def volume_estimation(
                     "mass_interval_g": [item.mass["mass_low_g"], item.mass["mass_high_g"]] if item.mass else None,
                     "density_source": item.mass["density_source"] if item.mass else None,
                     "presentation": item.mass["presentation"] if item.mass else None,
+                    "nutrients": item.nutrients,
                     "coverage_pct": round(int(item.mask.sum()) / item.mask.size * 100, 2),
                     "segmentation_score": round(item.score, 3),
                     "geometry_confidence": item.geometry_confidence
@@ -182,6 +198,8 @@ async def volume_estimation(
                 for item in food_items
             ],
             "items_with_masses": len(priced_items),
+            "items_with_nutrients": len(nutrient_items),
+            "total_nutrients": total_nutrients,
             "nlp_available": bool(entities)
         }
     )
