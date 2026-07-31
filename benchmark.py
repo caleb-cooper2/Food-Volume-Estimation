@@ -33,6 +33,9 @@ ENDPOINTS = {
     "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview"
 }
 
+# Every request now requires participant_code -> not a real participant, but satisfies the P\d{3} format the endpoints validate
+BENCHMARK_PARTICIPANT_CODE = "P000"
+
 BENCHMARK_ARMS = {
     "utensil_nlp": {"scale_ref": "utensil",    "use_text": True},
     "utensil_notext": {"scale_ref": "utensil",    "use_text": False},
@@ -136,7 +139,12 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
             idx = np.linspace(0, len(image_paths) - 1, MULTIVIEW_MAX_FRAMES).round().astype(int)
             frames = [image_paths[i] for i in idx]
         files = [("files", file_tuple(p)) for p in frames]
-    resp = requests.post(url, files=files, data={"scale_ref": scale_ref, "text": text}, timeout=REQUEST_TIMEOUT_S)
+    resp = requests.post(
+        url,
+        files=files,
+        data={"participant_code": BENCHMARK_PARTICIPANT_CODE, "scale_ref": scale_ref, "text": text},
+        timeout=REQUEST_TIMEOUT_S,
+    )
     resp.raise_for_status()
     return resp.json()
 

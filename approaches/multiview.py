@@ -22,6 +22,7 @@ from fastapi import File, UploadFile, HTTPException, Form
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
+from approaches import validate_participant_code
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M
 from depth import estimate_depth
 from geometry import M3_TO_CM3, measure_mask_endpoints
@@ -276,8 +277,12 @@ def startup_event():
 @app.post("/api/v1/estimate-volume-multiview", response_model=EstimationResponse)
 async def volume_estimation_multiview(
         files: list[UploadFile] = File(...),
+        participant_code: str = Form(...),
         scale_ref: str = Form("utensil"),  # 'checkerboard' anchors on the SimpleFood45 board (benchmarking)
 ) -> EstimationResponse:
+    participant_code = validate_participant_code(participant_code)
+    logger.info(f"[start] participant={participant_code}")
+
     # no minimum image amount as vggt outlines that single image performance is still acceptable?
     if len(files) > MAX_IMAGES:
         raise HTTPException(400, f"Maximum {MAX_IMAGES} images supported")
@@ -374,6 +379,7 @@ async def volume_estimation_multiview(
         mass_g=None,
         confidence=None,
         diagnostics={
+            "participant_code": participant_code,
             "volume_source": volume_source,
             "volume_instance_cm3": round(volume_instance_cm3, 2),
             "volume_blob_cm3": round(volume_blob_cm3, 2),

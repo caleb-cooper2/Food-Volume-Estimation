@@ -14,10 +14,10 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from PIL import Image
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from torchvision import transforms
 
-from approaches import read_upload
+from approaches import read_upload, validate_participant_code
 from depth import estimate_depth, depth_to_relief_channel, RELIEF_MEAN_M, RELIEF_STD_M
 from geometry import fit_support_plane, compute_volume, area_based_volume_proxy
 from logging_config import get_logger
@@ -172,11 +172,17 @@ def run_custom_model(image: Image.Image) -> float:
 
 
 @router.post("/api/v1/estimate-volume-dl", response_model=EstimationResponse)
-async def volume_estimation_dl(file: UploadFile = File(...)) -> EstimationResponse:
+async def volume_estimation_dl(
+        file: UploadFile = File(...),
+        participant_code: str = Form(...)
+) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline using deep learning model.
     """
     t_start = time.perf_counter()
+
+    participant_code = validate_participant_code(participant_code)
+    logger.info(f"[start] participant={participant_code}")
 
     _, pillow_image = await read_upload(file)
 
@@ -190,5 +196,5 @@ async def volume_estimation_dl(file: UploadFile = File(...)) -> EstimationRespon
         volume_cm3=None,
         mass_g=round(mass, 2),
         confidence=None,
-        diagnostics={}
+        diagnostics={"participant_code": participant_code}
     )

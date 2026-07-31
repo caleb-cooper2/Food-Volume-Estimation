@@ -1,4 +1,5 @@
 import io
+import re
 
 from PIL import Image
 from fastapi import HTTPException, UploadFile
@@ -9,6 +10,23 @@ register_heif_opener()
 ACCEPTED_MIME_TYPES = ("image/jpeg", "image/jpg", "image/png", "image/heic")
 MIN_IMAGE_BYTES = 1024
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
+
+PARTICIPANT_CODE_PATTERN = re.compile(r"^P\d{3}$")
+
+
+def validate_participant_code(participant_code: str) -> str:
+    """
+    Every study request has to be attributable to a participant, so this is required on every estimation endpoint.
+    Matches the format enforced client-side during onboarding.
+    :raises HTTPException: when the code is missing or malformed
+    """
+    code = (participant_code or "").strip().upper()
+    if not PARTICIPANT_CODE_PATTERN.match(code):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid or missing participant_code '{participant_code}' -> expected format like 'P014'",
+        )
+    return code
 
 
 async def read_upload(file: UploadFile) -> tuple[bytes, Image.Image]:

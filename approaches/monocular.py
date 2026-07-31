@@ -9,7 +9,7 @@ import time
 import numpy as np
 from fastapi import APIRouter, File, UploadFile, Form
 
-from approaches import read_upload
+from approaches import read_upload, validate_participant_code
 from reference_images import depth_to_b64_png, overlay_food_mask_b64, write_b64_png
 from depth import estimate_depth
 from geometry import extract_image_info, fit_support_plane, compute_volume
@@ -31,6 +31,7 @@ SEGMENTATION_DEBUG_PATH = "/tmp/seg_overlay.png"
 @router.post("/api/v1/estimate-volume", response_model=EstimationResponse)
 async def volume_estimation(
         file: UploadFile = File(...),
+        participant_code: str = Form(...),
         scale_ref: str = Form("utensil"),
         text: str = Form("")
 ) -> EstimationResponse:
@@ -42,6 +43,9 @@ async def volume_estimation(
     4. Integrate volume from height field
     """
     t_start = time.perf_counter()
+
+    participant_code = validate_participant_code(participant_code)
+    logger.info(f"[start] participant={participant_code}")
 
     image_bytes, pillow_image = await read_upload(file)
 
@@ -174,6 +178,7 @@ async def volume_estimation(
         mass_g=total_mass_g,
         confidence=confidence,
         diagnostics={
+            "participant_code": participant_code,
             "food_pixel_count": food_pixel_count,
             "food_coverage_pct": food_coverage_pct,
             "plate_depth_m": float(plane_p0[2]),

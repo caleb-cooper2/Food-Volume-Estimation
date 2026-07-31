@@ -232,6 +232,7 @@ Every endpoint returns the same top-level structure, whichever approach produced
 Monocular geometric. `multipart/form-data`:
 
 - `file` -> a JPEG, PNG or HEIC image (1KB - 30MB)
+- `participant_code` -> required, format `P###` (e.g. `P014`). Every request has to be attributable to a study participant; malformed or missing codes get a 422
 - `scale_ref` -> `utensil` (default) | `size_prior` | `checkerboard` | `auto`
 - `text` -> optional, what the user typed. Goes to the NLP server for the per-item SAM 3 prompts and densities
 
@@ -239,6 +240,7 @@ Monocular geometric. `multipart/form-data`:
 
 ```json
 "diagnostics": {
+  "participant_code": "P014",
   "food_pixel_count": 184203,
   "food_coverage_pct": 14.8,
   "plate_depth_m": 0.412,
@@ -286,10 +288,10 @@ Monocular geometric. `multipart/form-data`:
 - `total_nutrients` -> sum of `items[*].nutrients` across items that have one, `null` when none do 
 
 ### `POST /api/v1/estimate-volume-dl`
-Deep learning. Same single-`file` request. Fills `mass_g` only, with `diagnostics` empty. Needs a trained checkpoint.
+Deep learning. Same single-`file` request plus the same required `participant_code`. Fills `mass_g` only. Needs a trained checkpoint.
 
 ### `POST /api/v1/estimate-volume-multiview`
-Multi-view, served by `approaches.multiview:app`. `multipart/form-data` with a `files` field of up to 10 images and the same optional `scale_ref` (`checkerboard` when benchmarking). Fills `volume_cm3` only
+Multi-view, served by `approaches.multiview:app`. `multipart/form-data` with a `files` field of up to 10 images, the same required `participant_code`, and the same optional `scale_ref` (`checkerboard` when benchmarking). Fills `volume_cm3` only
 
 ```json
 "diagnostics": {
