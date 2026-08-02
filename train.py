@@ -823,7 +823,7 @@ def main(args):
         shuffle = False,
         num_workers = args.workers
     )
-    checkpoint = torch.load(best_ckpt, map_location=device)
+    checkpoint = torch.load(best_ckpt, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint["state_dict"])
     test_metrics = validate(model, test_loader, loss_fn, device, args.log_target, use_volume=args.use_volume, tta=args.tta)
     logger.info(f"Test | mape={test_metrics['mape']:.1f}%  mae={test_metrics['mae']:.1f}{unit}  loss={test_metrics['loss']:.4f}")

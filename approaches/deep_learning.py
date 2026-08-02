@@ -88,7 +88,7 @@ def load_model(model_path: str) -> nn.Module:
     Rebuild the trained model to match its checkpoint. Reads the saved args so it picks the right architecture: the plain ConvNeXt head,
     or the volume-assisted head (norm + head, with a 769-wide first Linear because the geometric volume scalar is concatenated in)
     """
-    checkpoint = torch.load(model_path, map_location="cpu")
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
     saved_args = checkpoint.get("args", {})
     log_target = bool(saved_args.get("log_target", False))
     use_volume = bool(saved_args.get("use_volume", False))

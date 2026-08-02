@@ -22,7 +22,7 @@ from segmentation import segment_reference_object
 
 logger = get_logger(__name__)
 
-SIZE_PRIOR_CHECKPOINT = "checkpoints/size_prior.pt"
+SIZE_PRIOR_CHECKPOINT = "models/size_prior.pt"
 
 # Known tip-to-tip lengths of common cutlery (metres). https://www.steelcitycutlery.com/shapesandsizes.html?srsltid=AfmBOoqN4Sg7zv4iAoLmDFJwXQP1FkXmRXZnqZTYWxcUiBf5r3rzJ14o, https://sabre-paris.com/en/pages/size-guide
 # These could vary ~±10% by brand/style, and volume error grows with the CUBE of length error
@@ -45,7 +45,7 @@ def _load_clip_model():
 
 def load_size_prior_head(model_path: str) -> nn.Module:
     """Rebuild the trained CLIP size-prior head from its checkpoint"""
-    checkpoint = torch.load(model_path, map_location="cpu")
+    checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
     head = SizePriorHead(feature_dim=checkpoint.get("feature_dim", 512))
     head.load_state_dict(checkpoint["state_dict"])
     return head.eval()
