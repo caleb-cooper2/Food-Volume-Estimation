@@ -28,7 +28,7 @@ from depth import estimate_depth
 from geometry import M3_TO_CM3, measure_mask_endpoints
 from logging_config import get_logger
 from main import app
-from model_manage import register_loader, get_model, preload_all, device
+from model_manage import register_loader, get_model, device
 from scale import REFERENCE_LENGTHS_M
 from schemas import EstimationResponse
 from segmentation import segment_food, segment_reference_object
@@ -267,11 +267,6 @@ def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, st
     #     logger.warning(f"Instance {instance_cm3:.1f} < {INSTANCE_COLLAPSE_RATIO:.0%} of blob {blob_cm3:.1f} -> per-instance collapsed, falling back to fused blob")
     #     return blob_cm3, "blob_fallback"
     return instance_cm3, "instance"
-
-
-@app.on_event("startup")
-def startup_event():
-    preload_all()
 
 
 @app.post("/api/v1/estimate-volume-multiview", response_model=EstimationResponse)
