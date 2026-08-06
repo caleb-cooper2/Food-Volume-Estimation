@@ -47,6 +47,11 @@ BENCHMARK_ARMS = {
 
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
 
+DEFAULT_ARMS_BY_SOURCE = {
+    "simplefood45": ["checkerboard"],
+    "custom": ["utensil_nlp", "utensil_notext", "sizeprior_nlp", "sizeprior_notext"],
+}
+
 DEFAULT_DENSITY_G_CM3 = 0.8  # only used to bridge units when a sample has no measured density
 MULTIVIEW_MAX_FRAMES = 3  # evenly spaced frames handed to the multi-view endpoint
 REQUEST_TIMEOUT_S = 600 # model inference on CPU/MPS is slow so give it room
@@ -63,7 +68,7 @@ MANIFEST_FIELDS = ["sample_id", "tier", "images", "approaches", "gt_mass_g", "gt
 RESULT_FIELDS = [
     "sample_id", "tier", "source", "approach", "arm", "pose", "utensil", "ok", "pred_mass_g", "pred_volume_cm3",
     "gt_mass_g", "gt_volume_cm3", "density_used", "density_assumed", "ref_tilt_deg", "confidence", "scale_source",
-    "scale_factor", "n_items", "error"
+    "scale_factor", "n_items", "latency_s", "error"
 ]
 
 
@@ -88,6 +93,7 @@ class ResultRow:
     scale_source: str = ""
     scale_factor: Optional[float] = None
     n_items: Optional[int] = None
+    latency_s: Optional[float] = None
     error: str = ""
 
 
@@ -186,11 +192,11 @@ def r2(pred: np.ndarray, target: np.ndarray) -> float:
 
 # Run harness
 def already_done(out_path: Path) -> set[tuple[str, str, str]]:
-    """(sample_id, approach, arm) combinations already scored, so an interrupted run resumes"""
+    """(sample_id, approach, arm) combinations already scored OK, so an interrupted run resumes and failures get retried"""
     if not out_path.exists():
         return set()
     with out_path.open() as f:
-        return {(r["sample_id"], r["approach"], r.get("arm", "")) for r in csv.DictReader(f)}
+        return {(r["sample_id"], r["approach"], r.get("arm", "")) for r in csv.DictReader(f) if r["ok"] == "True"}
 
 
 def run_benchmark(args) -> None:
@@ -221,8 +227,9 @@ def run_benchmark(args) -> None:
                 logger.warning(f"{sample_id}: no images resolved from '{row['images']}', skipping")
                 continue
 
+            arms = args.arms or DEFAULT_ARMS_BY_SOURCE.get(source, list(BENCHMARK_ARMS))
             for approach in approaches:
-                for arm in args.arms:
+                for arm in arms_for_approach(approach, arms):
                     if (sample_id, approach, arm) in done:
                         continue
                     result = score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass, gt_volume, density, ref_tilt)
@@ -233,18 +240,34 @@ def run_benchmark(args) -> None:
     summarise(out_path)
 
 
+def arms_for_approach(approach: str, arms: list[str]) -> list[str]:
+    """deep-learning ignores scale_ref and text, multi-view ignores text -> don't re-send identical requests"""
+    if approach == "deep-learning":
+        return arms[:1]
+    if approach == "multi-view":
+        no_text = [a for a in arms if not BENCHMARK_ARMS[a]["use_text"]]
+        return no_text or arms[:1]
+    return arms
+
+
 def score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass, gt_volume, density, ref_tilt) -> ResultRow:
     arm_config = BENCHMARK_ARMS[arm]
     scale_ref = arm_config["scale_ref"]
     text = row["text"] if arm_config["use_text"] else ""
     pose, utensil = row.get("pose", ""), row.get("utensil", "")
 
-    try:
-        resp = call_volume_endpoint(approach, image_paths, scale_ref, text)
-    except Exception as e:
-        logger.error(f"{sample_id} [{approach}/{arm}]: request failed ({e})")
-        return ResultRow(sample_id, tier, source, approach, arm, pose, utensil, False,
-                         None, None, gt_mass, gt_volume, None, False, ref_tilt, None, error=str(e))
+    for attempt in (1, 2):  # one automatic retry so a transient server hiccup doesn't leave a hole in the data
+        t_request = time.perf_counter()
+        try:
+            resp = call_volume_endpoint(approach, image_paths, scale_ref, text)
+            latency_s = round(time.perf_counter() - t_request, 1)
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"{sample_id} [{approach}/{arm}]: request failed twice ({e})")
+                return ResultRow(sample_id, tier, source, approach, arm, pose, utensil, False,
+                                 None, None, gt_mass, gt_volume, None, False, ref_tilt, None, error=str(e))
+            logger.warning(f"{sample_id} [{approach}/{arm}]: request failed ({e}), retrying")
 
     diagnostics = resp.get("diagnostics") or {}
     pred_mass, pred_volume, density_used, assumed = bridge_units(resp, density)
@@ -260,35 +283,68 @@ def score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass,
         scale_source=diagnostics.get("scale_source", ""),
         scale_factor=diagnostics.get("scale_factor"),
         n_items=len(diagnostics.get("items") or []),
+        latency_s=latency_s,
     )
 
 # Reporting
+SUCCESS_MAPE_PCT = 20.0  # RQ1 success criterion: mean relative volume error under 20%
+
+
 def summarise(out_path: Path) -> None:
     """
-    One table per axis that actually varies: approaches when several were run (SimpleFood45 runs all
-    three), arms when several were run (the custom A/B), then the paired NLP effect
+    RQ verdicts first, then one table per axis that actually varies: approaches when several were run
+    (SimpleFood45 runs all three), arms when several were run (the custom A/B), tilt buckets when the
+    board gave a reference tilt. Logged, and written next to the results as markdown
     """
+    if not out_path.exists():
+        raise SystemExit(f"No results file at {out_path}")
     with out_path.open() as f:
-        rows = [r for r in csv.DictReader(f) if r["ok"] == "True"]
+        # last row per (sample, approach, arm) wins, so a retried failure never double-counts
+        latest = {(r["sample_id"], r["approach"], r.get("arm", "")): r for r in csv.DictReader(f)}
+    rows = [r for r in latest.values() if r["ok"] == "True"]
     if not rows:
         logger.warning("No successful results to summarise")
         return
 
+    lines = summarise_rq_verdicts(rows)
     if len({r["approach"] for r in rows}) > 1:
-        summarise_by_approach(rows)
+        lines += summarise_by_approach(rows)
     if len({r["arm"] for r in rows}) > 1:
-        summarise_by_arm(rows)
-    summarise_nlp_effect(rows)
+        lines += summarise_by_arm(rows)
+    lines += summarise_by_tilt(rows)
+
+    for line in lines:
+        logger.info(line)
+
+    summary_path = out_path.with_name(out_path.stem + "_summary.md")
+    summary_path.write_text(
+        f"# Benchmark summary\n\nGenerated {datetime.now():%Y-%m-%d %H:%M} from `{out_path.name}` "
+        f"({len(rows)} scored results)\n\n```\n" + "\n".join(lines) + "\n```\n"
+    )
+    logger.info(f"Summary -> {summary_path}")
 
 
-def summarise_by_approach(rows: list[dict]) -> None:
+def summarise_rq_verdicts(rows: list[dict]) -> list[str]:
+    """The two success criteria, stated as pass/fail so the run answers the research questions directly"""
+    lines = [f"RQ1 - volume MAPE vs ground truth (success < {SUCCESS_MAPE_PCT:.0f}%):"]
+    for approach in sorted({r["approach"] for r in rows}):
+        volume_pred, volume_gt = paired_arrays([r for r in rows if r["approach"] == approach], "pred_volume_cm3", "gt_volume_cm3")
+        if len(volume_pred):
+            error_pct = mape(volume_pred, volume_gt)
+            lines.append(f"  {approach:<22}{error_pct:>7.1f}%  (n={len(volume_pred)})  -> {'PASS' if error_pct < SUCCESS_MAPE_PCT else 'FAIL'}")
+
+    nlp_lines = summarise_nlp_effect(rows)
+    lines += ["", "RQ2 - NLP text vs image-only, paired per image (success: text reduces error):"]
+    lines += nlp_lines or ["  no paired nlp/notext arms in this results file"]
+    return lines + [""]
+
+
+def summarise_by_approach(rows: list[dict]) -> list[str]:
     """
     Approach comparison, for datasets that run more than one
     """
-    header = f"{'approach':<22}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'R2(mass)':>10}"
-    logger.info("=" * len(header))
-    logger.info(header)
-    logger.info("-" * len(header))
+    header = f"{'approach':<22}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'R2(mass)':>10}{'lat_s':>7}"
+    lines = ["=" * len(header), header, "-" * len(header)]
 
     for approach in sorted({r["approach"] for r in rows}):
         grp = [r for r in rows if r["approach"] == approach]
@@ -298,17 +354,16 @@ def summarise_by_approach(rows: list[dict]) -> None:
         line = f"{approach:<22}{len(grp):>4}"
         line += f"{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}" if len(volume_pred) else f"{'-':>9}{'-':>9}"
         line += f"{mape(mass_pred, mass_gt):>9.1f}{r2(mass_pred, mass_gt):>10.2f}" if len(mass_pred) else f"{'-':>9}{'-':>10}"
-        logger.info(line)
-    logger.info("=" * len(header))
+        line += mean_latency(grp)
+        lines.append(line)
+    return lines + ["=" * len(header), ""]
 
 
-def summarise_by_arm(rows: list[dict]) -> None:
+def summarise_by_arm(rows: list[dict]) -> list[str]:
     """A/B testing volume errors, broken out by pose. Mass is shown only for the arms that supply text, because without it,
      the endpoint returns no density and the mass would be seperated from ground truth"""
-    header = f"{'arm':<18}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}" + "".join(f"{p:>12}" for p in CUSTOM_POSES)
-    logger.info("=" * len(header))
-    logger.info(header)
-    logger.info("-" * len(header))
+    header = f"{'arm':<18}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'lat_s':>7}" + "".join(f"{p:>12}" for p in CUSTOM_POSES)
+    lines = ["=" * len(header), header, "-" * len(header)]
 
     for arm in sorted({r["arm"] for r in rows}):
         grp = [r for r in rows if r["arm"] == arm]
@@ -317,12 +372,36 @@ def summarise_by_arm(rows: list[dict]) -> None:
 
         mass_pred, mass_gt = paired_arrays(grp, "pred_mass_g", "gt_mass_g") if BENCHMARK_ARMS[arm]["use_text"] else ([], [])
         line += f"{mape(mass_pred, mass_gt):>9.1f}" if len(mass_pred) else f"{'-':>9}"
+        line += mean_latency(grp)
 
         for pose in CUSTOM_POSES:
             pose_pred, pose_gt = paired_arrays([r for r in grp if r["pose"] == pose], "pred_volume_cm3", "gt_volume_cm3")
             line += f"{mape(pose_pred, pose_gt):>12.1f}" if len(pose_pred) else f"{'-':>12}"
-        logger.info(line)
-    logger.info("=" * len(header))
+        lines.append(line)
+    return lines + ["=" * len(header), ""]
+
+
+def summarise_by_tilt(rows: list[dict]) -> list[str]:
+    """Volume error stratified by the checkerboard's reference tilt (SimpleFood45), per approach:
+    does accuracy degrade as the view goes oblique?"""
+    tilted = [r for r in rows if r["ref_tilt_deg"]]
+    if not tilted:
+        return []
+    header = f"{'approach':<22}{'tilt':<10}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}"
+    lines = ["=" * len(header), header, "-" * len(header)]
+    for approach in sorted({r["approach"] for r in tilted}):
+        for low, high, bucket in TILT_BUCKETS:
+            grp = [r for r in tilted if r["approach"] == approach and low <= float(r["ref_tilt_deg"]) < high]
+            volume_pred, volume_gt = paired_arrays(grp, "pred_volume_cm3", "gt_volume_cm3")
+            if len(volume_pred):
+                lines.append(f"{approach:<22}{bucket:<10}{len(volume_pred):>4}"
+                             f"{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}")
+    return lines + ["=" * len(header), ""]
+
+
+def mean_latency(grp: list[dict]) -> str:
+    values = [float(r["latency_s"]) for r in grp if r.get("latency_s")]
+    return f"{np.mean(values):>7.1f}" if values else f"{'-':>7}"
 
 
 def paired_arrays(rows: list[dict], pred_key: str, gt_key: str) -> tuple[np.ndarray, np.ndarray]:
@@ -331,7 +410,7 @@ def paired_arrays(rows: list[dict], pred_key: str, gt_key: str) -> tuple[np.ndar
     return np.array([p for p, _ in pairs]), np.array([g for _, g in pairs])
 
 
-def summarise_nlp_effect(rows: list[dict]) -> None:
+def summarise_nlp_effect(rows: list[dict]) -> list[str]:
     """Paired per-image volume error with and without the NLP text, holding the scale anchor fixed"""
     errors = {
         (r["sample_id"], r["arm"]):
@@ -339,6 +418,7 @@ def summarise_nlp_effect(rows: list[dict]) -> None:
         for r in rows if r["pred_volume_cm3"] and r["gt_volume_cm3"]
     }
 
+    lines = []
     for anchor in ("utensil", "sizeprior"):
         pairs = [(errors[(sample_id, f"{anchor}_nlp")], errors[(sample_id, f"{anchor}_notext")])
                  for sample_id, arm in errors
@@ -347,10 +427,11 @@ def summarise_nlp_effect(rows: list[dict]) -> None:
             continue
         differences = np.array([with_text - without_text for with_text, without_text in pairs])  # negative = text helped
         n_better = int(np.sum(differences < 0))
-        logger.info(
-            f"NLP effect ({anchor}): {differences.mean():+.1f}pp over {len(pairs)} pairs, "
-            f"{n_better}/{len(pairs)} better, sign p={sign_test_p(n_better, len(pairs)):.3f}"
+        lines.append(
+            f"  {anchor:<10} {differences.mean():+7.1f}pp over {len(pairs)} pairs, {n_better}/{len(pairs)} better, "
+            f"sign p={sign_test_p(n_better, len(pairs)):.3f}  -> {'PASS' if differences.mean() < 0 else 'FAIL'}"
         )
+    return lines
 
 
 def sign_test_p(n_better: int, n_total: int) -> float:
@@ -530,7 +611,7 @@ if __name__ == "__main__":
     parser_run.add_argument("--manifest", type=str, required=True)
     parser_run.add_argument("--out", type=str, default="./data/benchmark_results.csv")
     parser_run.add_argument("--limit", type=int, default=0)
-    parser_run.add_argument("--arms", nargs="+", default=list(BENCHMARK_ARMS), choices=list(BENCHMARK_ARMS))
+    parser_run.add_argument("--arms", nargs="+", default=None, choices=list(BENCHMARK_ARMS)) #default: picked per sample source (simplefood45 -> checkerboard, custom -> the four utensil/size-prior arms
     parser_run.set_defaults(func=run_benchmark)
 
     parser_simplefood45 = sub.add_parser("build-simplefood45")
@@ -546,6 +627,11 @@ if __name__ == "__main__":
     parser_custom.add_argument("--out", type=str, default="./data/benchmark_manifest_custom.csv")
     parser_custom.add_argument("--approaches", type=str, default="monocular-geometric")
     parser_custom.set_defaults(func=build_custom_manifest)
+
+    # regenerate the summary from an existing results csv without re-running anything
+    parser_report = sub.add_parser("report")
+    parser_report.add_argument("--results", type=str, default="./data/benchmark_results.csv")
+    parser_report.set_defaults(func=lambda a: summarise(Path(a.results)))
 
     args = parser.parse_args()
     args.func(args)
