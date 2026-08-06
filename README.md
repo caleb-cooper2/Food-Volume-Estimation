@@ -90,6 +90,25 @@ The monocular endpoint calls the `unstructured-food-input` server to turn the us
 
 It's expected on `http://localhost:8000`, override with `NLP_URL` if it's somewhere else
 
+### Participant data capture
+
+Every estimation request is archived under `DATA_ROOT` (env var, default `./AppUsage`)
+
+```
+AppUsage/
+    transfer_log.csv                one row per file written -> synced_at is left empty for the sync job to fill
+    P0NN/
+      meals/                        what the participant submitted (text, scale_ref) plus the full NLP JSON
+      images/                       the uploaded photo (keeps EXIF)
+      estimates/                    the full estimation response as JSON
+```
+
+Folders are created when needed, point the data root to your desired location:
+
+```bash
+DATA_ROOT=/srv/study/AppUsage uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
 ---
 
 ## Training the Volume Estimation Model

@@ -22,6 +22,7 @@ from depth import estimate_depth, depth_to_relief_channel, RELIEF_MEAN_M, RELIEF
 from geometry import fit_support_plane, compute_volume, area_based_volume_proxy
 from logging_config import get_logger
 from model_manage import register_loader, get_model
+from participant_data import record_request
 from schemas import CameraInfo, EstimationResponse
 from segmentation import segment_food
 
@@ -184,17 +185,19 @@ async def volume_estimation_dl(
     participant_code = validate_participant_code(participant_code)
     logger.info(f"[start] participant={participant_code}")
 
-    _, pillow_image = await read_upload(file)
+    image_bytes, pillow_image = await read_upload(file)
 
     with torch.no_grad():
         mass = run_custom_model(pillow_image)
 
     logger.info(f"Model estimated mass: {mass:.2f} g")
     logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")
-    return EstimationResponse(
+    response = EstimationResponse(
         approach="deep-learning",
         volume_cm3=None,
         mass_g=round(mass, 2),
         confidence=None,
         diagnostics={"participant_code": participant_code}
     )
+    record_request(participant_code, image_bytes, file.content_type, {}, response)
+    return response
