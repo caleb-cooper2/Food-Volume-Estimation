@@ -41,7 +41,8 @@ BENCHMARK_ARMS = {
     "utensil_notext": {"scale_ref": "utensil",    "use_text": False},
     "sizeprior_nlp": {"scale_ref": "size_prior", "use_text": True},
     "sizeprior_notext": {"scale_ref": "size_prior", "use_text": False},
-    "checkerboard": {"scale_ref": "checkerboard", "use_text": False}
+    "checkerboard": {"scale_ref": "checkerboard", "use_text": False},
+    "none": {"scale_ref": "size_prior", "use_text": False}
 }
 
 
@@ -61,6 +62,7 @@ TILT_BUCKETS = ((0.0, 15.0, "overhead"), (15.0, 35.0, "mild"), (35.0, 999.0, "ob
 MIME_BY_SUFFIX = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".heic": "image/heic"}
 
 CUSTOM_POSES = ("overhead", "tilt", "side_left", "side_right")
+CUSTOM_MULTIVIEW_POSES = ("tilt", "side_left", "side_right")
 CUSTOM_UTENSILS = ("fork", "knife", "spoon")
 
 MANIFEST_FIELDS = ["sample_id", "tier", "images", "approaches", "gt_mass_g", "gt_volume_cm3", "density", "scale_ref",
@@ -243,7 +245,7 @@ def run_benchmark(args) -> None:
 def arms_for_approach(approach: str, arms: list[str]) -> list[str]:
     """deep-learning ignores scale_ref and text, multi-view ignores text -> don't re-send identical requests"""
     if approach == "deep-learning":
-        return arms[:1]
+        return ["none"]
     if approach == "multi-view":
         no_text = [a for a in arms if not BENCHMARK_ARMS[a]["use_text"]]
         return no_text or arms[:1]
@@ -362,22 +364,23 @@ def summarise_by_approach(rows: list[dict]) -> list[str]:
 def summarise_by_arm(rows: list[dict]) -> list[str]:
     """A/B testing volume errors, broken out by pose. Mass is shown only for the arms that supply text, because without it,
      the endpoint returns no density and the mass would be seperated from ground truth"""
-    header = f"{'arm':<18}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'lat_s':>7}" + "".join(f"{p:>12}" for p in CUSTOM_POSES)
+    header = f"{'approach':<22}{'arm':<18}{'n':>4}{'V-MAPE%':>9}{'V-bias%':>9}{'M-MAPE%':>9}{'lat_s':>7}" + "".join(f"{p:>12}" for p in CUSTOM_POSES)
     lines = ["=" * len(header), header, "-" * len(header)]
 
-    for arm in sorted({r["arm"] for r in rows}):
-        grp = [r for r in rows if r["arm"] == arm]
-        volume_pred, volume_gt = paired_arrays(grp, "pred_volume_cm3", "gt_volume_cm3")
-        line = f"{arm:<18}{len(grp):>4}{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}"
+    for approach in sorted({r["approach"] for r in rows}):
+        for arm in sorted({r["arm"] for r in rows if r["approach"] == approach}):
+            grp = [r for r in rows if r["approach"] == approach and r["arm"] == arm]
+            volume_pred, volume_gt = paired_arrays(grp, "pred_volume_cm3", "gt_volume_cm3")
+            line = f"{approach:<22}{arm:<18}{len(grp):>4}"
+            line += f"{mape(volume_pred, volume_gt):>9.1f}{bias_pct(volume_pred, volume_gt):>9.1f}" if len(volume_pred) else f"{'-':>9}{'-':>9}"
+            mass_pred, mass_gt = paired_arrays(grp, "pred_mass_g", "gt_mass_g") if BENCHMARK_ARMS[arm]["use_text"] else ([], [])
+            line += f"{mape(mass_pred, mass_gt):>9.1f}" if len(mass_pred) else f"{'-':>9}"
+            line += mean_latency(grp)
 
-        mass_pred, mass_gt = paired_arrays(grp, "pred_mass_g", "gt_mass_g") if BENCHMARK_ARMS[arm]["use_text"] else ([], [])
-        line += f"{mape(mass_pred, mass_gt):>9.1f}" if len(mass_pred) else f"{'-':>9}"
-        line += mean_latency(grp)
-
-        for pose in CUSTOM_POSES:
-            pose_pred, pose_gt = paired_arrays([r for r in grp if r["pose"] == pose], "pred_volume_cm3", "gt_volume_cm3")
-            line += f"{mape(pose_pred, pose_gt):>12.1f}" if len(pose_pred) else f"{'-':>12}"
-        lines.append(line)
+            for pose in CUSTOM_POSES:
+                pose_pred, pose_gt = paired_arrays([r for r in grp if r["pose"] == pose], "pred_volume_cm3", "gt_volume_cm3")
+                line += f"{mape(pose_pred, pose_gt):>12.1f}" if len(pose_pred) else f"{'-':>12}"
+            lines.append(line)
     return lines + ["=" * len(header), ""]
 
 
@@ -413,16 +416,16 @@ def paired_arrays(rows: list[dict], pred_key: str, gt_key: str) -> tuple[np.ndar
 def summarise_nlp_effect(rows: list[dict]) -> list[str]:
     """Paired per-image volume error with and without the NLP text, holding the scale anchor fixed"""
     errors = {
-        (r["sample_id"], r["arm"]):
+        (r["approach"], r["sample_id"], r["arm"]):
             abs(float(r["pred_volume_cm3"]) - float(r["gt_volume_cm3"])) / max(float(r["gt_volume_cm3"]), 1.0) * 100.0
         for r in rows if r["pred_volume_cm3"] and r["gt_volume_cm3"]
     }
 
     lines = []
     for anchor in ("utensil", "sizeprior"):
-        pairs = [(errors[(sample_id, f"{anchor}_nlp")], errors[(sample_id, f"{anchor}_notext")])
-                 for sample_id, arm in errors
-                 if arm == f"{anchor}_nlp" and (sample_id, f"{anchor}_notext") in errors]
+        pairs = [(errors[(approach, sid, f"{anchor}_nlp")], errors[(approach, sid, f"{anchor}_notext")])
+                 for approach, sid, arm in errors
+                 if arm == f"{anchor}_nlp" and (approach, sid, f"{anchor}_notext") in errors]
         if not pairs:
             continue
         differences = np.array([with_text - without_text for with_text, without_text in pairs])  # negative = text helped
@@ -548,7 +551,7 @@ def build_custom_manifest(args) -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    n_rows, n_missing_folders = 0, 0
+    n_rows, n_mv_rows, n_missing_folders = 0, 0, 0
     with out_path.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=MANIFEST_FIELDS)
         writer.writeheader()
@@ -567,6 +570,19 @@ def build_custom_manifest(args) -> None:
                 n_missing_folders += 1
                 continue
 
+            base = {
+                "tier": "custom",
+                "approaches": args.approaches,
+                "gt_mass_g": round(gt_mass_g, 2),
+                "gt_volume_cm3": round(gt_volume_cm3, 2),
+                "density": density, "scale_ref": "",
+                "ref_scale_cm_per_px": "",
+                "ref_tilt_deg": "",
+                "source": "custom",
+                "text": food_label
+            }
+
+            captures: dict[tuple[str, str], Path] = {}
             for image_path in sorted(folder.iterdir()):
                 if image_path.suffix.lower() not in MIME_BY_SUFFIX:
                     continue
@@ -574,26 +590,35 @@ def build_custom_manifest(args) -> None:
                 if not pose:
                     logger.warning(f"{folder_id}/{image_path.name}: unrecognised pose in filename, skipping")
                     continue
-
+                captures.setdefault((pose, utensil), image_path)
                 writer.writerow({
+                    **base,
                     "sample_id": f"{folder_id}_{image_path.stem}",
-                    "tier": "custom",
                     "images": str(image_path),
-                    "approaches": args.approaches,
-                    "gt_mass_g": round(gt_mass_g, 2),
-                    "gt_volume_cm3": round(gt_volume_cm3, 2),
-                    "density": density,
-                    "scale_ref": "",           # the arm sets this, not the manifest
-                    "ref_scale_cm_per_px": "",
-                    "ref_tilt_deg": "",
-                    "source": "custom",
-                    "text": food_label,
                     "pose": pose,
-                    "utensil": utensil,
+                    "utensil": utensil
                 })
                 n_rows += 1
 
-    logger.info(f"Wrote {n_rows} image rows from {len(label_rows)} folders ({n_missing_folders} folders missing on disk) -> {out_path}")
+            if args.no_multiview:
+                continue
+            # one multi-view row per utensil so the in-frame scale anchor is consistent across the three views
+            for utensil in sorted({u for _, u in captures}):
+                frames = [captures.get((pose, utensil)) for pose in CUSTOM_MULTIVIEW_POSES]
+                if any(f is None for f in frames):
+                    missing = [p for p, f in zip(CUSTOM_MULTIVIEW_POSES, frames) if f is None]
+                    logger.warning(f"{folder_id} [{utensil or 'none'}]: missing {missing}, no multi-view row")
+                    continue
+                writer.writerow({
+                    **base,
+                    "approaches": "multi-view",
+                    "sample_id": f"{folder_id}_mv_{utensil or 'none'}",
+                    "images": ";".join(str(f) for f in frames),
+                    "pose": "multiview", "utensil": utensil
+                })
+                n_mv_rows += 1
+
+    logger.info(f"Wrote {n_rows} image rows, {n_mv_rows} from {len(label_rows)} folders ({n_missing_folders} folders missing on disk) -> {out_path}")
 
 def find_columns(cols_lower: dict, hints: list[str]) -> Optional[str]:
     for hint in hints:
@@ -625,7 +650,8 @@ if __name__ == "__main__":
     parser_custom.add_argument("--labels", type=str, default="./data/custom_dataset/label-info.csv")
     parser_custom.add_argument("--images_root", type=str, default="./data/custom_dataset")
     parser_custom.add_argument("--out", type=str, default="./data/benchmark_manifest_custom.csv")
-    parser_custom.add_argument("--approaches", type=str, default="monocular-geometric")
+    parser_custom.add_argument("--approaches", type=str, default="monocular-geometric;deep-learning")
+    parser_custom.add_argument("--no-multiview", action="store_true")
     parser_custom.set_defaults(func=build_custom_manifest)
 
     # regenerate the summary from an existing results csv without re-running anything
