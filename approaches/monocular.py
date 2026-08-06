@@ -15,6 +15,7 @@ from depth import estimate_depth
 from geometry import extract_image_info, fit_support_plane, compute_volume
 from logging_config import get_logger
 from nlp_client import extract_entities
+from participant_data import record_request
 from scale import resolve_scale_correction
 from schemas import CameraInfo, EstimationResponse, FoodItemResult
 from segmentation import segment_food, segment_food_items, make_masks_disjoint
@@ -172,7 +173,7 @@ async def volume_estimation(
 
     logger.info(f"Total pipeline time: {time.perf_counter() - t_start:.3f}s")
 
-    return EstimationResponse(
+    response = EstimationResponse(
         approach="monocular-geometric",
         volume_cm3=round(total_volume_cm3, 2),
         mass_g=total_mass_g,
@@ -208,3 +209,5 @@ async def volume_estimation(
             "nlp_available": bool(entities)
         }
     )
+    record_request(participant_code, image_bytes, file.content_type, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
+    return response
