@@ -33,8 +33,8 @@ ENDPOINTS = {
 BENCHMARK_PARTICIPANT_CODE = "P000"
 
 BENCHMARK_ARMS = {
-    "utensil_nlp": {"scale_ref": "utensil",    "use_text": True},
-    "utensil_notext": {"scale_ref": "utensil",    "use_text": False},
+    "utensil_nlp": {"scale_ref": "utensil", "use_text": True},
+    "utensil_notext": {"scale_ref": "utensil", "use_text": False},
     "sizeprior_nlp": {"scale_ref": "size_prior", "use_text": True},
     "sizeprior_notext": {"scale_ref": "size_prior", "use_text": False},
     "checkerboard": {"scale_ref": "checkerboard", "use_text": False},
@@ -45,7 +45,7 @@ BENCHMARK_ARMS = {
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
 
 DEFAULT_ARMS_BY_SOURCE = {
-    "simplefood45": ["checkerboard"],
+    "simplefood45": ["checkerboard", "sizeprior_notext"],
     "custom": ["utensil_nlp", "utensil_notext", "sizeprior_nlp", "sizeprior_notext"],
 }
 
@@ -147,7 +147,7 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
         url,
         files=files,
         data={"participant_code": BENCHMARK_PARTICIPANT_CODE, "scale_ref": scale_ref, "text": text},
-        timeout=REQUEST_TIMEOUT_S,
+        timeout=REQUEST_TIMEOUT_S
     )
     resp.raise_for_status()
     return resp.json()
@@ -281,7 +281,7 @@ def score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass,
         scale_source=diagnostics.get("scale_source", ""),
         scale_factor=diagnostics.get("scale_factor"),
         n_items=len(diagnostics.get("items") or []),
-        latency_s=latency_s,
+        latency_s=latency_s
     )
 
 # Reporting
