@@ -17,14 +17,10 @@ from logging_config import get_logger
 
 logger = get_logger(__name__)
 
-
-# Benchmark for the three approaches using deployed HTTP endpoints, testing the path the phone would use
-
 # SimpleFood45 dataset contains food images with 5x4 checkerboard that gives two exact references our deployment path only guesses at (scale and tilt)
-# We use the checkerboard tilt as ground truth to stratify error by view obliquity (does the geometric approach degrade as the paper's single-axis assumption predicts,
+# We use the checkerboard tilt as ground truth to figure out error by view obliquity (does the geometric approach degrade as the paper's single-axis assumption predicts,
 # and does its own geometry_confidence track the real tilt?)
 
-# All three routes live on one app, so one base URL covers them. Serve it with `uvicorn approaches.multiview:app`
 API_BASE_URL = os.environ.get("VOLUME_API_URL", "http://localhost:8001")
 
 ENDPOINTS = {
