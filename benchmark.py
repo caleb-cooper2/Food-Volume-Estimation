@@ -1,5 +1,8 @@
 import argparse
+import base64
 import csv
+import json
+
 import math
 import os
 import time
@@ -29,6 +32,10 @@ ENDPOINTS = {
     "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview"
 }
 
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+
 # Every request now requires participant_code -> not a real participant, but satisfies the P\d{3} format the endpoints validate
 BENCHMARK_PARTICIPANT_CODE = "P000"
 
@@ -42,7 +49,7 @@ BENCHMARK_ARMS = {
 }
 
 
-SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning"}
+SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning", "llm"}
 
 DEFAULT_ARMS_BY_SOURCE = {
     "simplefood45": ["checkerboard", "sizeprior_notext"],
@@ -133,6 +140,9 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     POST to a deployed endpoint and return the EstimationResponse json. scale_ref selects the scale anchor, text supplies
     the food description that drives the SAM 3 prompt and the density lookup
     """
+    if approach == "llm":
+        return call_llm(image_paths, text)
+
     url = ENDPOINTS[approach]
     if approach in SINGLE_IMAGE_APPROACHES:
         files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
@@ -151,6 +161,51 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def call_llm(image_paths: list[Path], text: str) -> dict:
+    """
+    Sends the image frame to an OpenRouter vision model and asks for the same JSON output as the FastAPI endpoints
+    """
+    image_path = image_paths[len(image_paths) // 2]
+    _, data, mime = file_tuple(image_path)
+    image_b64 = base64.b64encode(data).decode("ascii")
+
+    food_hint = f"The food has been described as: {text}." if text else "No food description is provided; identify the food yourself."
+
+    system_prompt = (
+        "You are a food volume and mass estimator. Given a single photo, identify the food item(s), "
+        "estimate their total volume and mass, and return ONLY a JSON object with this exact shape, "
+        "no markdown fences, no commentary:\n"
+        '{"mass_g": <number>, "volume_cm3": <number>, "confidence": "<low|medium|high>", '
+        '"diagnostics": {"scale_source": "<string>", "scale_factor": <number or null>, "items": [<string>, ...]}}\n'
+        f"{food_hint}"
+    )
+
+    resp = requests.post(
+        OPENROUTER_API_URL,
+        headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": OPENROUTER_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+                    {"type": "text", "text": "Estimate the mass and volume of the food in this image."}
+                ]}
+            ]
+        },
+        timeout=REQUEST_TIMEOUT_S
+    )
+
+    resp.raise_for_status()
+    content = resp.json()["choices"][0]["message"]["content"]
+
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        cleaned = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return json.loads(cleaned)
 
 
 # Unit bridge, need to handle either volume or mass when needed
