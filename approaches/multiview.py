@@ -16,7 +16,6 @@ import cv2
 import numpy as np
 import open3d as o3d
 import torch
-import trimesh
 from PIL import Image
 from fastapi import File, UploadFile, HTTPException, Form
 from vggt.models.vggt import VGGT
@@ -25,13 +24,15 @@ from vggt.utils.load_fn import load_and_preprocess_images
 from approaches import validate_participant_code
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M
 from depth import estimate_depth
-from geometry import M3_TO_CM3, measure_mask_endpoints
+from geometry import measure_mask_endpoints
 from logging_config import get_logger
 from main import app
-from model_manage import register_loader, get_model, device
-from scale import REFERENCE_LENGTHS_M
+from model_manage import register_loader, get_model, device, torch_device
+from scale import REFERENCE_LENGTHS_M, clip_processor
+from scale_prior import extract_clip_features
 from schemas import EstimationResponse
 from segmentation import segment_food, segment_reference_object
+from volume_mesh import compute_volume_from_mesh, compute_volume_per_instance
 
 logger = get_logger(__name__)
 
@@ -56,28 +57,32 @@ def load_and_preprocess_images_from_pil(pil_images: list[Image.Image]) -> torch.
         return load_and_preprocess_images(paths)
 
 
-def compute_volume_from_mesh(food_points_metric: np.ndarray) -> float:
+def fit_table_plane(world_points_metric: np.ndarray, food_mask_resized: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
     """
-    Fit a Poisson surface mesh to the food point cloud and compute its watertight volume.
-    Requires the point cloud to have normals
+    RANSAC the table plane out of the primary frame's background points, so compute_volume_from_mesh can close
+    the food cloud against it. Returns (unit normal oriented so food reads positive, a point on the plane), or None
+    when there's too little background to fit (mesh then stays uncapped, as before)
     """
+    background = world_points_metric[food_mask_resized == 0]
+    background = background[np.isfinite(background).all(axis=1)]
+    if len(background) < 200:
+        logger.warning(f"  Plane | only {len(background)} background pts -> cannot fit the table, meshing uncapped")
+        return None
+
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(food_points_metric)
-    pcd.estimate_normals()
-    pcd.orient_normals_consistent_tangent_plane(10)
+    pcd.points = o3d.utility.Vector3dVector(background)
+    (a, b, c, d), inliers = pcd.segment_plane(distance_threshold=0.006, ransac_n=3, num_iterations=250)
+    normal = np.array([a, b, c])
+    point_on_plane = -d * normal
 
-    # Poisson reconstruction -> produces a watertight mesh
-    mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd)
+    # Orient the normal off the food itself, it sits on top of the table by definition
+    food = world_points_metric[food_mask_resized > 0]
+    food = food[np.isfinite(food).all(axis=1)]
+    if len(food) and np.median((food - point_on_plane) @ normal) < 0:
+        normal = -normal
 
-    o3d.io.write_triangle_mesh("/tmp/debug_food_mesh.ply", mesh)
-
-    # Which can be converted to a trimesh and volume can be derived
-    trimesh_result = trimesh.Trimesh(
-        vertices=np.asarray(mesh.vertices),
-        faces=np.asarray(mesh.triangles)
-    )
-    volume_m3 = abs(trimesh_result.volume) # it's in m3 as that's what depth map + vggt provides
-    return volume_m3 * M3_TO_CM3
+    logger.info(f"  Plane | table fitted on {len(inliers)}/{len(background)} background pts  normal=[{normal[0]:.2f}, {normal[1]:.2f}, {normal[2]:.2f}]")
+    return normal, point_on_plane
 
 
 def sample_world_point(world_points: np.ndarray, row: float, col: float, window: int = 3
@@ -152,36 +157,35 @@ def checkerboard_scale_from_reconstruction(primary: Image.Image, world_points: n
     return scale
 
 
-def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_metric: np.ndarray) -> float:
+def size_prior_scale_from_reconstruction(primary: Image.Image, world_points: np.ndarray, food_mask_resized: np.ndarray) -> float | None:
     """
-    Rather than computing volume from one blob all together, attempt to be more precise and compute each segmented
-    instance by separating each mask. Seems to improve on the compute by mesh implementation?
+    Estimate scale using the CLIP size-prior.
+
+    The CLIP head predicts the food's real-world footprint diameter. We compare that to the footprint measured from the
+    VGGT world-point grid (sum of per-quad projected areas over the food mask) to obtain a metric scale factor.
     """
-    total_volume_cm3 = 0.0
-    target_h, target_w = world_points_metric.shape[0], world_points_metric.shape[1]
+    du = np.zeros_like(world_points)
+    dv = np.zeros_like(world_points)
+    du[:, :-1] = world_points[:, 1:] - world_points[:, :-1]
+    dv[:-1, :] = world_points[1:, :] - world_points[:-1, :]
+    # VGGT's world frame is the first camera's frame, so its optical axis is +z -> the frontal projection is the z component
+    quad_area = np.abs(np.cross(du, dv)[..., 2])
 
-    for i, mask in enumerate(instance_masks):
-        mask_resized = cv2.resize(
-            mask,
-            (target_w, target_h),
-            interpolation=cv2.INTER_NEAREST
-        )
-        pts = world_points_metric[mask_resized > 0]
+    food = (food_mask_resized > 0) & np.isfinite(quad_area)
+    area_units2 = float(quad_area[food].sum())
+    if area_units2 <= 0:
+        return None
+    measured_diameter = 2.0 * np.sqrt(area_units2 / np.pi)  # equivalent circular diameter, VGGT units
 
-        if len(pts) < 50:
-            logger.info(f"Skipping instance {i} with less than 50 points")
-            continue
+    head = get_model("size_prior")
+    clip_model = get_model("clip")
+    features = extract_clip_features(primary, clip_model, clip_processor, torch_device)
+    features = features.to(next(head.parameters()).device)
+    predicted_m = float(torch.exp(head(features)).item()) / 100.0  # head predicts log cm
 
-        try:
-            vol_cm3 = compute_volume_from_mesh(pts)
-        except Exception as e:
-            logger.error(f"Error computing volume for instance {i}: {e}")
-            continue
-
-        logger.info(f"Instance {i} volume: {vol_cm3:.2f} cm^3 with {len(pts)} points")
-        total_volume_cm3 += vol_cm3
-
-    return total_volume_cm3
+    scale = predicted_m / measured_diameter
+    logger.info(f"  SizePrior | predicted footprint {predicted_m * 100:.1f}cm vs measured {measured_diameter:.4f} VGGT-units -> scale x{scale:.4f}")
+    return scale
 
 
 def compute_vggt_crop_geometry(orig_width: int, orig_height: int, target_size: int = 518) -> dict:
@@ -273,7 +277,7 @@ def select_final_volume(instance_cm3: float, blob_cm3: float) -> tuple[float, st
 async def volume_estimation_multiview(
         files: list[UploadFile] = File(...),
         participant_code: str = Form(...),
-        scale_ref: str = Form("utensil"),  # 'checkerboard' anchors on the SimpleFood45 board (benchmarking)
+        scale_ref: str = Form("utensil"),  # 'utensil' | 'auto' | 'checkerboard' | 'size_prior'
 ) -> EstimationResponse:
     participant_code = validate_participant_code(participant_code)
     logger.info(f"[start] participant={participant_code}")
@@ -321,17 +325,24 @@ async def volume_estimation_multiview(
     )
     bg_mask = food_mask_resized == 0
 
-    # Prefer the reference scale (utensil, or the checkerboard when benchmarking), only fall back to a DepthPro anchor if that fails
-    if scale_ref == "checkerboard":
-        scale = checkerboard_scale_from_reconstruction(primary, world_points)
-    else:
+    scale, scale_source = None, "none"
+    if scale_ref in ("auto", "utensil"):
+        # Each utensil is its own SAM 3 call... averaging the ones that fire smooths per-utensil length error
         reference_scale_factors = [
             c for c in (
                 reference_scale_from_reconstruction(primary, world_points, utensil=utensil)
                 for utensil in REFERENCE_LENGTHS_M
             ) if c is not None
         ]
-        scale = float(np.mean(reference_scale_factors)) if reference_scale_factors else None
+        if reference_scale_factors:
+            scale, scale_source = float(np.mean(reference_scale_factors)), "utensil"
+
+    if scale_ref == "checkerboard":
+        scale = checkerboard_scale_from_reconstruction(primary, world_points)
+        scale_source = "checkerboard" if scale is not None else "none"
+    elif scale_ref == "size_prior" or (scale_ref == "auto" and scale is None):
+        scale = size_prior_scale_from_reconstruction(primary, world_points, food_mask_resized)
+        scale_source = "size_prior" if scale is not None else "none"
 
     if scale is None:
         # Anchor VGGT against DepthPro's metric depth over the background, resized to match VGGT
@@ -342,12 +353,16 @@ async def volume_estimation_multiview(
         bg_ratio = bg_ratio[np.isfinite(bg_ratio) & (bg_ratio > 0)]
         if bg_ratio.size < 200:
             logger.warning(f"Only {bg_ratio.size} valid background px for scale anchoring -> scale may be unreliable")
-        scale = float(np.median(bg_ratio))
+        scale, scale_source = float(np.median(bg_ratio)), "depthpro_bg"
         logger.info(f"VGGT scale from DepthPro background (fallback): {scale:.4f}")
     else:
-        logger.info(f"VGGT scale from reference utensil: {scale:.4f}")
+        logger.info(f"VGGT scale from '{scale_source}': {scale:.4f}")
 
     world_points_metric = world_points * scale
+
+    # Table plane from the primary frame's background, so the meshes below hopefully close against it instead of
+    # draping past the food
+    table_plane = fit_table_plane(world_points_metric, food_mask_resized)
 
     all_world_points = predictions["world_points"][0].cpu().numpy()  # (S, H, W, 3)
     vh, vw = all_world_points.shape[1], all_world_points.shape[2]
@@ -362,10 +377,10 @@ async def volume_estimation_multiview(
     logger.info(f"Fused {len(food_points_metric)} food points across {len(pil_images)} views "
                 f"(frame 0 alone was {int((food_mask_resized > 0).sum())})")
 
-    volume_blob_cm3 = compute_volume_from_mesh(food_points_metric)
+    volume_blob_cm3 = compute_volume_from_mesh(food_points_metric, table_plane)
 
     # per-instance beats the single blob, and use the NMS-refined masks (we already computed them above, no point double-counting the raw overlaps)
-    volume_instance_cm3 = compute_volume_per_instance(instance_masks_refined, world_points_metric)
+    volume_instance_cm3 = compute_volume_per_instance(instance_masks_refined, world_points_metric, table_plane)
 
     volume_cm3, volume_source = select_final_volume(volume_instance_cm3, volume_blob_cm3)
     response = EstimationResponse(
@@ -378,7 +393,8 @@ async def volume_estimation_multiview(
             "volume_source": volume_source,
             "volume_instance_cm3": round(volume_instance_cm3, 2),
             "volume_blob_cm3": round(volume_blob_cm3, 2),
-            "scale": round(scale, 4)
+            "scale": round(scale, 4),
+            "scale_source": scale_source
         }
     )
 

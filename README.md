@@ -8,7 +8,7 @@ Three approaches have been investigated, each as its own endpoint:
 
 - **Monocular geometric** (`approaches/monocular.py`) -> single RGB image. Metric depth (DepthPro) + food mask (SAM 3), a support plane fitted to the surface the food sits on, then the volume integrated as a height field above that plane. Densities from the NLP server turn that volume into a mass, and its nutrients get rescaled to that mass
 - **Deep learning** (`approaches/deep_learning.py`) -> single RGB image through the ConvNeXt-Tiny model trained on Nutrition5k (see [Training](#training-the-volume-estimation-model)). Predicts mass directly
-- **Multi-view** (`approaches/multiview.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a watertight mesh volume per food instance (or the fused multi-view blob when per-instance meshing collapses)
+- **Multi-view** (`approaches/multiview.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a watertight mesh volume per food instance, with the cloud closed against a RANSAC-fitted table plane before meshing (or the fused multi-view blob when per-instance meshing collapses)
 
 ## Prerequisites
 - Python 3.10+
@@ -310,15 +310,17 @@ Monocular geometric. `multipart/form-data`:
 Deep learning. Same single-`file` request plus the same required `participant_code`. Fills `mass_g` only. Needs a trained checkpoint.
 
 ### `POST /api/v1/estimate-volume-multiview`
-Multi-view, served by `approaches.multiview:app`. `multipart/form-data` with a `files` field of up to 10 images, the same required `participant_code`, and the same optional `scale_ref` (`checkerboard` when benchmarking). Fills `volume_cm3` only
+Multi-view, served by `approaches.multiview:app`. `multipart/form-data` with a `files` field of up to 10 images, the same required `participant_code`, and the same optional `scale_ref` with the same anchors as monocular (`utensil` | `auto` | `checkerboard` | `size_prior`), each measured in VGGT's world points rather than the depth map. Whatever the chosen anchor misses falls back to anchoring VGGT against DepthPro's metric depth over the background. Fills `volume_cm3` only
 
 ```json
 "diagnostics": {
   "volume_source": "instance",
   "volume_instance_cm3": 298.7,
   "volume_blob_cm3": 341.2,
-  "scale": 0.0417
+  "scale": 0.0417,
+  "scale_source": "utensil"
 }
 ```
 
 - `volume_source` -> `instance` | `blob_fallback`, which of the two volumes above was returned
+- `scale_source` -> the anchor that actually got used, `depthpro_bg` when the chosen anchor found nothing
