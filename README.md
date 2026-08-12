@@ -72,7 +72,7 @@ source .venv/bin/activate  # if not already active
 uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 
-The API will be available at `http://localhost:8001`. On first run, both models (~4.5GB total) will be downloaded and cached to `~/.cache/huggingface/`.
+The API will be available at `http://localhost:8001`. On first run, all models (~4.5GB total) will be downloaded and cached to `~/.cache/huggingface/`.
 
 The deep-learning endpoint additionally needs a trained checkpoint at the path `approaches/deep_learning.py` registers as `DL_CHECKPOINT` (see [Training](#training-the-volume-estimation-model)).
 
