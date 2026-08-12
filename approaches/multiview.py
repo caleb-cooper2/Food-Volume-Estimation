@@ -16,7 +16,6 @@ import cv2
 import numpy as np
 import open3d as o3d
 import torch
-import trimesh
 from PIL import Image
 from fastapi import File, UploadFile, HTTPException, Form
 from vggt.models.vggt import VGGT
@@ -25,7 +24,7 @@ from vggt.utils.load_fn import load_and_preprocess_images
 from approaches import validate_participant_code
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M
 from depth import estimate_depth
-from geometry import M3_TO_CM3, measure_mask_endpoints
+from geometry import measure_mask_endpoints
 from logging_config import get_logger
 from main import app
 from model_manage import register_loader, get_model, device, torch_device
@@ -33,6 +32,7 @@ from scale import REFERENCE_LENGTHS_M, clip_processor
 from scale_prior import extract_clip_features
 from schemas import EstimationResponse
 from segmentation import segment_food, segment_reference_object
+from volume_mesh import compute_volume_from_mesh, compute_volume_per_instance
 
 logger = get_logger(__name__)
 
@@ -83,38 +83,6 @@ def fit_table_plane(world_points_metric: np.ndarray, food_mask_resized: np.ndarr
 
     logger.info(f"  Plane | table fitted on {len(inliers)}/{len(background)} background pts  normal=[{normal[0]:.2f}, {normal[1]:.2f}, {normal[2]:.2f}]")
     return normal, point_on_plane
-
-
-def compute_volume_from_mesh(food_points_metric: np.ndarray, table_plane: tuple[np.ndarray, np.ndarray] | None = None) -> float:
-    """
-    Fit a Poisson surface mesh to the food point cloud and compute its watertight volume.
-    Requires the point cloud to have normals
-    """
-    if table_plane is not None:
-        normal, point_on_plane = table_plane
-        heights = np.clip((food_points_metric - point_on_plane) @ normal, 0.0, None)
-        cap = food_points_metric - heights[:, None] * normal
-        food_points_metric = np.concatenate([food_points_metric, cap])
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(food_points_metric)
-    pcd.estimate_normals()
-    pcd.orient_normals_consistent_tangent_plane(10)
-
-    # Poisson reconstruction -> produces a watertight mesh
-    mesh, _ = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(pcd)
-
-    o3d.io.write_triangle_mesh("/tmp/debug_food_mesh.ply", mesh)
-
-    # Which can be converted to a trimesh and volume can be derived
-    trimesh_result = trimesh.Trimesh(
-        vertices=np.asarray(mesh.vertices),
-        faces=np.asarray(mesh.triangles)
-    )
-    if not trimesh_result.is_watertight:
-        logger.warning("  Mesh | Poisson mesh not watertight, volume could be unreliable")
-    volume_m3 = abs(trimesh_result.volume) # it's in m3 as that's what depth map + vggt provides
-    return volume_m3 * M3_TO_CM3
 
 
 def sample_world_point(world_points: np.ndarray, row: float, col: float, window: int = 3
@@ -218,38 +186,6 @@ def size_prior_scale_from_reconstruction(primary: Image.Image, world_points: np.
     scale = predicted_m / measured_diameter
     logger.info(f"  SizePrior | predicted footprint {predicted_m * 100:.1f}cm vs measured {measured_diameter:.4f} VGGT-units -> scale x{scale:.4f}")
     return scale
-
-
-def compute_volume_per_instance(instance_masks: list[np.ndarray], world_points_metric: np.ndarray, table_plane: tuple[np.ndarray, np.ndarray] | None = None) -> float:
-    """
-    Rather than computing volume from one blob all together, attempt to be more precise and compute each segmented
-    instance by separating each mask. Seems to improve on the compute by mesh implementation?
-    """
-    total_volume_cm3 = 0.0
-    target_h, target_w = world_points_metric.shape[0], world_points_metric.shape[1]
-
-    for i, mask in enumerate(instance_masks):
-        mask_resized = cv2.resize(
-            mask,
-            (target_w, target_h),
-            interpolation=cv2.INTER_NEAREST
-        )
-        pts = world_points_metric[mask_resized > 0]
-
-        if len(pts) < 50:
-            logger.info(f"Skipping instance {i} with less than 50 points")
-            continue
-
-        try:
-            vol_cm3 = compute_volume_from_mesh(pts, table_plane)
-        except Exception as e:
-            logger.error(f"Error computing volume for instance {i}: {e}")
-            continue
-
-        logger.info(f"Instance {i} volume: {vol_cm3:.2f} cm^3 with {len(pts)} points")
-        total_volume_cm3 += vol_cm3
-
-    return total_volume_cm3
 
 
 def compute_vggt_crop_geometry(orig_width: int, orig_height: int, target_size: int = 518) -> dict:
