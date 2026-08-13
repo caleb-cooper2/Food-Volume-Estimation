@@ -184,21 +184,26 @@ def resolve_scale_correction(
     correction, source = None, "none"
 
     if scale_ref in ("auto", "utensil"):
-        # Each utensil is its own SAM 3 pass; averaging the ones that fire smooths per-utensil length error
-        utensil_corrections = [
-            c for c in (
-                reference_scale_factor(pillow_image, depth_map, cam, utensil=utensil)
-                for utensil in REFERENCE_LENGTHS_M
-            ) if c is not None
-        ]
-        if utensil_corrections:
-            correction, source = float(np.mean(utensil_corrections)), "utensil"
+        # Each utensil is its own SAM 3 pass
+        utensil_candidates = []
+        for utensil in REFERENCE_LENGTHS_M:
+            result = reference_scale_factor_with_confidence(pillow_image, depth_map, cam, utensil=utensil)
+            if result is None:
+                continue
+
+            utensil_correction, score = result
+            utensil_candidates.append((utensil, utensil_correction, score))
+
+        if utensil_candidates:
+            utensil, correction, score = max(utensil_candidates, key=lambda candidate: candidate[2])
+            source = "utensil"
+            logger.info(
+                f"  Reference | using '{utensil}' scale from highest-confidence reference detection: "
+                f"score={score:.3f} -> depth scale x{correction:.3f}"
+            )
 
     if scale_ref == "checkerboard":
         correction = checkerboard_scale_factor(pillow_image, depth_map, cam)
         source = "checkerboard" if correction is not None else "none"
-    elif scale_ref == "size_prior" or (scale_ref == "auto" and correction is None):
-        correction = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, cam)
-        source = "size_prior" if correction is not None else "none"
 
     return correction, source
