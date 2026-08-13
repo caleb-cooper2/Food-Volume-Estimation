@@ -24,9 +24,9 @@ def _load_sam3_model():
 register_loader("sam3", _load_sam3_model)
 
 
-def segment_food(pillow_image: Image.Image, threshold: float = 0.5, prompt="food") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
+def segment_food(pillow_image: Image.Image, threshold: float = 0.5, prompt="food or drink") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
     """
-    Segment food region using SAM 3 with text prompt "food".
+    Segment food region using SAM 3 with text prompt "food or drink".
     Falls back to full-image mask if no instances found.
     :return: union mask of all detected instances and per-instance scores.
     """

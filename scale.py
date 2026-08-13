@@ -33,7 +33,7 @@ REFERENCE_LENGTHS_M = {
 }
 
 # A >3x correction is almost always a bad mask/detection/depth rather than real scale, so every anchor rejects outside this
-PLAUSIBLE_CORRECTION = (0.15, 3.0)
+PLAUSIBLE_CORRECTION = (0.01, 3.0)
 
 clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
 
