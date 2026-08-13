@@ -204,6 +204,9 @@ def call_llm(image_paths: list[Path], text: str) -> dict:
     )
 
     resp.raise_for_status()
+
+    logger.debug(resp.json())
+
     content = resp.json()["choices"][0]["message"]["content"]
 
     try:
