@@ -174,11 +174,16 @@ def call_llm(image_paths: list[Path], text: str) -> dict:
     food_hint = f"The food has been described as: {text}." if text else "No food description is provided; identify the food yourself."
 
     system_prompt = (
-        "You are a food volume and mass estimator. Given a single photo, identify the food item(s), "
-        "estimate their total volume and mass, and return ONLY a JSON object with this exact shape, "
-        "no markdown fences, no commentary:\n"
+        "You are a food volume and mass estimator. Given a single photo, identify each distinct food "
+        "item visible on the plate or in the bowl (do not merge separate foods into one item, and ignore "
+        "cutlery, napkins, containers, or other non-food objects). For each item, estimate its volume and "
+        "mass. Return ONLY a JSON object with this exact shape, no markdown fences, no commentary:\n"
         '{"mass_g": <number>, "volume_cm3": <number>, "confidence": "<low|medium|high>", '
-        '"diagnostics": {"scale_source": "<string>", "scale_factor": <number or null>, "items": [<string>, ...]}}\n'
+        '"diagnostics": {"scale_source": "visual_estimate", "scale_factor": null, '
+        '"items": [{"name": <string>, "mass_g": <number>, "volume_cm3": <number>}, ...]}}\n'
+        "mass_g and volume_cm3 at the top level should be the sum across all items. Base your scale "
+        "judgement on typical real-world object sizes visible in frame (e.g. plate diameter ~26-28cm, "
+        "standard cutlery length), since a physical reference marker may not be present.\n"
         f"{food_hint}"
     )
 
