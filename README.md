@@ -4,11 +4,11 @@ A pipeline server for processing and estimating the volume of food images taken 
 
 ## Approaches
 
-Three approaches have been investigated, each as its own endpoint:
+Three approaches have been investigated (only monocular connected to NLP), each as its own endpoint:
 
 - **Monocular geometric** (`approaches/monocular.py`) -> single RGB image. Metric depth (DepthPro) + food mask (SAM 3), a support plane fitted to the surface the food sits on, then the volume integrated as a height field above that plane. Densities from the NLP server turn that volume into a mass, and its nutrients get rescaled to that mass
 - **Deep learning** (`approaches/deep_learning.py`) -> single RGB image through the ConvNeXt-Tiny model trained on Nutrition5k (see [Training](#training-the-volume-estimation-model)). Predicts mass directly
-- **Multi-view** (`approaches/multiview.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a watertight mesh volume per food instance, with the cloud closed against a RANSAC-fitted table plane before meshing (or the fused multi-view blob when per-instance meshing collapses)
+- **Multi-view** (`approaches/multiview.py`) -> several RGB images reconstructed with VGGT, scale-anchored to a reference utensil measured in the reconstruction (falling back to DepthPro's metric depth over the background), then a mesh volume per food instance, checked for a closed/well-posed mesh and falling back to a height-map geometric integral when it isn't
 
 ## Prerequisites
 - Python 3.10+
@@ -40,7 +40,7 @@ pip install git+https://github.com/facebookresearch/vggt.git
 ## Inference Server
 
 ### Authenticate with Hugging Face
-Both models are downloaded automatically from Hugging Face on first run. `apple/DepthPro-hf` is publicly available and requires no special access. `facebook/sam3` is a **gated model**, meaning you need to request and receive access approval from Meta before the weights can be downloaded.
+The models are downloaded automatically from Hugging Face on first run. `apple/DepthPro-hf` is publicly available and requires no special access. `facebook/sam3` is a **gated model**, meaning you need to request and receive access approval from Meta before the weights can be downloaded.
 
 **Step 1: Request access**
 
