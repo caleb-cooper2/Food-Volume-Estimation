@@ -13,12 +13,12 @@ from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
 from checkerboard import find_corners, adjacent_corner_pixel_pairs, CHECKERBOARD_SQUARE_M, CHECKERBOARD_SQUARE_CM
-from geometry import backproject_pixel, measure_mask_endpoints, metric_footprint_diameter_cm
+from geometry import backproject_pixel, metric_footprint_diameter_cm, measure_mask_endpoints
 from logging_config import get_logger
 from model_manage import register_loader, get_model, torch_device
 from scale_prior import SizePriorHead, extract_clip_features, CLIP_MODEL_NAME
 from schemas import CameraInfo
-from segmentation import segment_reference_object
+from segmentation import segment_reference_object, segment_reference_object_with_score
 
 logger = get_logger(__name__)
 
@@ -66,13 +66,32 @@ def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam
     divide the known length by it. Returns the factor to multiply the depth map by, or None if no reliable reference was found (caller then falls back to
     the reference-free path)
     """
+    result = reference_scale_factor_with_confidence(pillow_image, depth_map, cam, utensil=utensil)
+    if result is None:
+        return None
+    correction, _ = result
+    return correction
+
+def reference_scale_factor_with_confidence(
+        pillow_image: Image.Image,
+        depth_map: np.ndarray,
+        cam: CameraInfo,
+        utensil: str = "fork"
+) -> Optional[tuple[float, float]]:
+    """
+    Recover the absolute-scale correction from a utensil of known real length and return it with the SAM confidence score
+    """
     known_m = REFERENCE_LENGTHS_M.get(utensil)
     if known_m is None:
         logger.warning(f"  Reference | no known length for '{utensil}'")
         return None
 
-    mask = segment_reference_object(pillow_image, utensil)
-    if mask is None or int(mask.sum()) < 200:
+    result = segment_reference_object_with_score(pillow_image, utensil)
+    if result is None:
+        return None
+
+    mask, score = result
+    if int(mask.sum()) < 200:
         return None
 
     p_a, p_b = measure_mask_endpoints(mask)
@@ -91,7 +110,7 @@ def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam
     if not is_plausible(correction):
         logger.warning(f"  Reference | correction x{correction:.3f} implausible -> rejecting, using reference-free scale")
         return None
-    return correction
+    return correction, score
 
 
 def checkerboard_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo) -> Optional[float]:

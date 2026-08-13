@@ -85,7 +85,7 @@ async def volume_estimation(
     if not food_items:
         # No text, or nothing matched a named prompt -> one generic pass so the image path still works
         generic_mask, generic_scores, _ = segment_food(pillow_image, prompt="food or drink")
-        food_items = [FoodItemResult(prompt="food", mask=generic_mask, score=float(np.mean(generic_scores)) if generic_scores else 0.0)]
+        food_items = [FoodItemResult(prompt="food or drink", mask=generic_mask, score=float(np.mean(generic_scores)) if generic_scores else 0.0)]
 
     make_masks_disjoint(food_items)
     food_items = [item for item in food_items if int(item.mask.sum()) > 0]

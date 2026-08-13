@@ -24,7 +24,7 @@ def _load_sam3_model():
 register_loader("sam3", _load_sam3_model)
 
 
-def segment_food(pillow_image: Image.Image, threshold: float = 0.5, prompt="food or drink") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
+def segment_food(pillow_image: Image.Image, threshold: float = 0.3, prompt="food or drink") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
     """
     Segment food region using SAM 3 with text prompt "food or drink".
     Falls back to full-image mask if no instances found.
@@ -112,8 +112,8 @@ def make_masks_disjoint(items: list[FoodItemResult]) -> None:
         item.mask = kept.astype(np.uint8)
 
 
-def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", threshold: float = 0.5) -> Optional[np.ndarray]:
-    """Segment a reference utensil with SAM 3 and return the single highest-scoring instance mask, or None if nothing confident is found"""
+def segment_reference_object_with_score(pillow_image: Image.Image, utensil: str = "fork", threshold: float = 0.5) -> Optional[tuple[np.ndarray, float]]:
+    """Segment a reference utensil with SAM 3 and return the highest-scoring instance mask and score, or None if nothing confident is found"""
     inputs = sam3_processor(images=pillow_image, text=utensil, return_tensors="pt").to(torch_device)
     sam3 = get_model("sam3")
     with torch.no_grad():
@@ -130,5 +130,14 @@ def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", t
         return None
 
     best = int(torch.argmax(scores).item())
-    logger.info(f"  Reference | '{utensil}' found: score={scores[best]:.3f}  ({masks.shape[0]} candidate(s))")
-    return masks[best].cpu().numpy().astype(np.uint8)
+    score = float(scores[best].item())
+    logger.info(f"  Reference | '{utensil}' found: score={score:.3f}  ({masks.shape[0]} candidate(s))")
+    return masks[best].cpu().numpy().astype(np.uint8), score
+
+def segment_reference_object(pillow_image: Image.Image, utensil: str = "fork", threshold: float = 0.5) -> Optional[np.ndarray]:
+    """Segment a reference utensil with SAM 3 and return the single highest-scoring instance mask, or None if nothing confident is found"""
+    result = segment_reference_object_with_score(pillow_image, utensil=utensil, threshold=threshold)
+    if result is None:
+        return None
+    mask, _ = result
+    return mask

@@ -384,7 +384,7 @@ def summarise(out_path: Path) -> None:
 
 def summarise_rq_verdicts(rows: list[dict]) -> list[str]:
     """The two success criteria, stated as pass/fail so the run answers the research questions directly"""
-    lines = [f"RQ1 - volume MAPE vs ground truth (success < {SUCCESS_MAPE_PCT:.0f}%):"]
+    lines = [f"RQ2 - volume MAPE vs ground truth (success < {SUCCESS_MAPE_PCT:.0f}%):"]
     for approach in sorted({r["approach"] for r in rows}):
         volume_pred, volume_gt = paired_arrays([r for r in rows if r["approach"] == approach], "pred_volume_cm3", "gt_volume_cm3")
         if len(volume_pred):
@@ -392,7 +392,7 @@ def summarise_rq_verdicts(rows: list[dict]) -> list[str]:
             lines.append(f"  {approach:<22}{error_pct:>7.1f}%  (n={len(volume_pred)})  -> {'PASS' if error_pct < SUCCESS_MAPE_PCT else 'FAIL'}")
 
     nlp_lines = summarise_nlp_effect(rows)
-    lines += ["", "RQ2 - NLP text vs image-only, paired per image (success: text reduces error):"]
+    lines += ["", "RQ3 - NLP text vs image-only, paired per image (success: text reduces error):"]
     lines += nlp_lines or ["  no paired nlp/notext arms in this results file"]
     return lines + [""]
 
