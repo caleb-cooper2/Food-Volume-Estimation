@@ -1,0 +1,296 @@
+sample_id,tier,images,approaches,gt_mass_g,gt_volume_cm3,density,scale_ref,ref_scale_cm_per_px,ref_tilt_deg,source,text,pose,utensil
+Food_01_overhead_fork,custom,data/custom_dataset/Food_01/overhead_fork.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,overhead,fork
+Food_01_overhead_knife,custom,data/custom_dataset/Food_01/overhead_knife.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,overhead,knife
+Food_01_overhead_spoon,custom,data/custom_dataset/Food_01/overhead_spoon.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,overhead,spoon
+Food_01_side_left_fork,custom,data/custom_dataset/Food_01/side_left_fork.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_left,fork
+Food_01_side_left_knife,custom,data/custom_dataset/Food_01/side_left_knife.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_left,knife
+Food_01_side_left_spoon,custom,data/custom_dataset/Food_01/side_left_spoon.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_left,spoon
+Food_01_side_right_fork,custom,data/custom_dataset/Food_01/side_right_fork.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_right,fork
+Food_01_side_right_knife,custom,data/custom_dataset/Food_01/side_right_knife.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_right,knife
+Food_01_side_right_spoon,custom,data/custom_dataset/Food_01/side_right_spoon.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,side_right,spoon
+Food_01_tilt_fork,custom,data/custom_dataset/Food_01/tilt_fork.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,tilt,fork
+Food_01_tilt_knife,custom,data/custom_dataset/Food_01/tilt_knife.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,tilt,knife
+Food_01_tilt_spoon,custom,data/custom_dataset/Food_01/tilt_spoon.jpeg,monocular-geometric;deep-learning,181.0,179.0,1.01,,,,custom,Banana,tilt,spoon
+Food_01_mv_fork,custom,data/custom_dataset/Food_01/tilt_fork.jpeg;data/custom_dataset/Food_01/side_left_fork.jpeg;data/custom_dataset/Food_01/side_right_fork.jpeg,multi-view,181.0,179.0,1.01,,,,custom,Banana,multiview,fork
+Food_01_mv_knife,custom,data/custom_dataset/Food_01/tilt_knife.jpeg;data/custom_dataset/Food_01/side_left_knife.jpeg;data/custom_dataset/Food_01/side_right_knife.jpeg,multi-view,181.0,179.0,1.01,,,,custom,Banana,multiview,knife
+Food_01_mv_spoon,custom,data/custom_dataset/Food_01/tilt_spoon.jpeg;data/custom_dataset/Food_01/side_left_spoon.jpeg;data/custom_dataset/Food_01/side_right_spoon.jpeg,multi-view,181.0,179.0,1.01,,,,custom,Banana,multiview,spoon
+Food_02_overhead_fork,custom,data/custom_dataset/Food_02/overhead_fork.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,overhead,fork
+Food_02_overhead_knife,custom,data/custom_dataset/Food_02/overhead_knife.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,overhead,knife
+Food_02_overhead_spoon,custom,data/custom_dataset/Food_02/overhead_spoon.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,overhead,spoon
+Food_02_side_left_fork,custom,data/custom_dataset/Food_02/side_left_fork.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_left,fork
+Food_02_side_left_knife,custom,data/custom_dataset/Food_02/side_left_knife.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_left,knife
+Food_02_side_left_spoon,custom,data/custom_dataset/Food_02/side_left_spoon.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_left,spoon
+Food_02_side_right_fork,custom,data/custom_dataset/Food_02/side_right_fork.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_right,fork
+Food_02_side_right_knife,custom,data/custom_dataset/Food_02/side_right_knife.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_right,knife
+Food_02_side_right_spoon,custom,data/custom_dataset/Food_02/side_right_spoon.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,side_right,spoon
+Food_02_tilt_fork,custom,data/custom_dataset/Food_02/tilt_fork.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,tilt,fork
+Food_02_tilt_knife,custom,data/custom_dataset/Food_02/tilt_knife.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,tilt,knife
+Food_02_tilt_spoon,custom,data/custom_dataset/Food_02/tilt_spoon.jpeg,monocular-geometric;deep-learning,276.0,276.0,1.0,,,,custom,Apple,tilt,spoon
+Food_02_mv_fork,custom,data/custom_dataset/Food_02/tilt_fork.jpeg;data/custom_dataset/Food_02/side_left_fork.jpeg;data/custom_dataset/Food_02/side_right_fork.jpeg,multi-view,276.0,276.0,1.0,,,,custom,Apple,multiview,fork
+Food_02_mv_knife,custom,data/custom_dataset/Food_02/tilt_knife.jpeg;data/custom_dataset/Food_02/side_left_knife.jpeg;data/custom_dataset/Food_02/side_right_knife.jpeg,multi-view,276.0,276.0,1.0,,,,custom,Apple,multiview,knife
+Food_02_mv_spoon,custom,data/custom_dataset/Food_02/tilt_spoon.jpeg;data/custom_dataset/Food_02/side_left_spoon.jpeg;data/custom_dataset/Food_02/side_right_spoon.jpeg,multi-view,276.0,276.0,1.0,,,,custom,Apple,multiview,spoon
+Food_03_overhead_fork,custom,data/custom_dataset/Food_03/overhead_fork.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,overhead,fork
+Food_03_overhead_knife,custom,data/custom_dataset/Food_03/overhead_knife.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,overhead,knife
+Food_03_overhead_spoon,custom,data/custom_dataset/Food_03/overhead_spoon.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,overhead,spoon
+Food_03_side_left_fork,custom,data/custom_dataset/Food_03/side_left_fork.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_left,fork
+Food_03_side_left_knife,custom,data/custom_dataset/Food_03/side_left_knife.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_left,knife
+Food_03_side_left_spoon,custom,data/custom_dataset/Food_03/side_left_spoon.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_left,spoon
+Food_03_side_right_fork,custom,data/custom_dataset/Food_03/side_right_fork.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_right,fork
+Food_03_side_right_knife,custom,data/custom_dataset/Food_03/side_right_knife.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_right,knife
+Food_03_side_right_spoon,custom,data/custom_dataset/Food_03/side_right_spoon.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,side_right,spoon
+Food_03_tilt_fork,custom,data/custom_dataset/Food_03/tilt_fork.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,tilt,fork
+Food_03_tilt_knife,custom,data/custom_dataset/Food_03/tilt_knife.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,tilt,knife
+Food_03_tilt_spoon,custom,data/custom_dataset/Food_03/tilt_spoon.jpeg,monocular-geometric;deep-learning,276.0,378.0,0.73,,,,custom,Mandarin,tilt,spoon
+Food_03_mv_fork,custom,data/custom_dataset/Food_03/tilt_fork.jpeg;data/custom_dataset/Food_03/side_left_fork.jpeg;data/custom_dataset/Food_03/side_right_fork.jpeg,multi-view,276.0,378.0,0.73,,,,custom,Mandarin,multiview,fork
+Food_03_mv_knife,custom,data/custom_dataset/Food_03/tilt_knife.jpeg;data/custom_dataset/Food_03/side_left_knife.jpeg;data/custom_dataset/Food_03/side_right_knife.jpeg,multi-view,276.0,378.0,0.73,,,,custom,Mandarin,multiview,knife
+Food_03_mv_spoon,custom,data/custom_dataset/Food_03/tilt_spoon.jpeg;data/custom_dataset/Food_03/side_left_spoon.jpeg;data/custom_dataset/Food_03/side_right_spoon.jpeg,multi-view,276.0,378.0,0.73,,,,custom,Mandarin,multiview,spoon
+Food_04_overhead_fork,custom,data/custom_dataset/Food_04/overhead_fork.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,overhead,fork
+Food_04_overhead_knife,custom,data/custom_dataset/Food_04/overhead_knife.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,overhead,knife
+Food_04_overhead_spoon,custom,data/custom_dataset/Food_04/overhead_spoon.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,overhead,spoon
+Food_04_side_left_fork,custom,data/custom_dataset/Food_04/side_left_fork.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_left,fork
+Food_04_side_left_knife,custom,data/custom_dataset/Food_04/side_left_knife.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_left,knife
+Food_04_side_left_spoon,custom,data/custom_dataset/Food_04/side_left_spoon.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_left,spoon
+Food_04_side_right_fork,custom,data/custom_dataset/Food_04/side_right_fork.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_right,fork
+Food_04_side_right_knife,custom,data/custom_dataset/Food_04/side_right_knife.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_right,knife
+Food_04_side_right_spoon,custom,data/custom_dataset/Food_04/side_right_spoon.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,side_right,spoon
+Food_04_tilt_fork,custom,data/custom_dataset/Food_04/tilt_fork.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,tilt,fork
+Food_04_tilt_knife,custom,data/custom_dataset/Food_04/tilt_knife.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,tilt,knife
+Food_04_tilt_spoon,custom,data/custom_dataset/Food_04/tilt_spoon.jpeg,monocular-geometric;deep-learning,359.0,321.0,1.12,,,,custom,Potatos,tilt,spoon
+Food_04_mv_fork,custom,data/custom_dataset/Food_04/tilt_fork.jpeg;data/custom_dataset/Food_04/side_left_fork.jpeg;data/custom_dataset/Food_04/side_right_fork.jpeg,multi-view,359.0,321.0,1.12,,,,custom,Potatos,multiview,fork
+Food_04_mv_knife,custom,data/custom_dataset/Food_04/tilt_knife.jpeg;data/custom_dataset/Food_04/side_left_knife.jpeg;data/custom_dataset/Food_04/side_right_knife.jpeg,multi-view,359.0,321.0,1.12,,,,custom,Potatos,multiview,knife
+Food_04_mv_spoon,custom,data/custom_dataset/Food_04/tilt_spoon.jpeg;data/custom_dataset/Food_04/side_left_spoon.jpeg;data/custom_dataset/Food_04/side_right_spoon.jpeg,multi-view,359.0,321.0,1.12,,,,custom,Potatos,multiview,spoon
+Food_05_overhead_fork,custom,data/custom_dataset/Food_05/overhead_fork.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,overhead,fork
+Food_05_overhead_knife,custom,data/custom_dataset/Food_05/overhead_knife.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,overhead,knife
+Food_05_overhead_spoon,custom,data/custom_dataset/Food_05/overhead_spoon.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,overhead,spoon
+Food_05_side_left_fork,custom,data/custom_dataset/Food_05/side_left_fork.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_left,fork
+Food_05_side_left_knife,custom,data/custom_dataset/Food_05/side_left_knife.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_left,knife
+Food_05_side_left_spoon,custom,data/custom_dataset/Food_05/side_left_spoon.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_left,spoon
+Food_05_side_right_fork,custom,data/custom_dataset/Food_05/side_right_fork.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_right,fork
+Food_05_side_right_knife,custom,data/custom_dataset/Food_05/side_right_knife.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_right,knife
+Food_05_side_right_spoon,custom,data/custom_dataset/Food_05/side_right_spoon.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,side_right,spoon
+Food_05_tilt_fork,custom,data/custom_dataset/Food_05/tilt_fork.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,tilt,fork
+Food_05_tilt_knife,custom,data/custom_dataset/Food_05/tilt_knife.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,tilt,knife
+Food_05_tilt_spoon,custom,data/custom_dataset/Food_05/tilt_spoon.jpeg,monocular-geometric;deep-learning,292.0,292.0,1.0,,,,custom,Carrot,tilt,spoon
+Food_05_mv_fork,custom,data/custom_dataset/Food_05/tilt_fork.jpeg;data/custom_dataset/Food_05/side_left_fork.jpeg;data/custom_dataset/Food_05/side_right_fork.jpeg,multi-view,292.0,292.0,1.0,,,,custom,Carrot,multiview,fork
+Food_05_mv_knife,custom,data/custom_dataset/Food_05/tilt_knife.jpeg;data/custom_dataset/Food_05/side_left_knife.jpeg;data/custom_dataset/Food_05/side_right_knife.jpeg,multi-view,292.0,292.0,1.0,,,,custom,Carrot,multiview,knife
+Food_05_mv_spoon,custom,data/custom_dataset/Food_05/tilt_spoon.jpeg;data/custom_dataset/Food_05/side_left_spoon.jpeg;data/custom_dataset/Food_05/side_right_spoon.jpeg,multi-view,292.0,292.0,1.0,,,,custom,Carrot,multiview,spoon
+Food_06_overhead_fork,custom,data/custom_dataset/Food_06/overhead_fork.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,overhead,fork
+Food_06_overhead_knife,custom,data/custom_dataset/Food_06/overhead_knife.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,overhead,knife
+Food_06_overhead_spoon,custom,data/custom_dataset/Food_06/overhead_spoon.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,overhead,spoon
+Food_06_side_left_fork,custom,data/custom_dataset/Food_06/side_left_fork.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_left,fork
+Food_06_side_left_knife,custom,data/custom_dataset/Food_06/side_left_knife.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_left,knife
+Food_06_side_left_spoon,custom,data/custom_dataset/Food_06/side_left_spoon.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_left,spoon
+Food_06_side_right_fork,custom,data/custom_dataset/Food_06/side_right_fork.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_right,fork
+Food_06_side_right_knife,custom,data/custom_dataset/Food_06/side_right_knife.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_right,knife
+Food_06_side_right_spoon,custom,data/custom_dataset/Food_06/side_right_spoon.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,side_right,spoon
+Food_06_tilt_fork,custom,data/custom_dataset/Food_06/tilt_fork.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,tilt,fork
+Food_06_tilt_knife,custom,data/custom_dataset/Food_06/tilt_knife.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,tilt,knife
+Food_06_tilt_spoon,custom,data/custom_dataset/Food_06/tilt_spoon.jpeg,monocular-geometric;deep-learning,63.0,61.0,1.03,,,,custom,Egg,tilt,spoon
+Food_06_mv_fork,custom,data/custom_dataset/Food_06/tilt_fork.jpeg;data/custom_dataset/Food_06/side_left_fork.jpeg;data/custom_dataset/Food_06/side_right_fork.jpeg,multi-view,63.0,61.0,1.03,,,,custom,Egg,multiview,fork
+Food_06_mv_knife,custom,data/custom_dataset/Food_06/tilt_knife.jpeg;data/custom_dataset/Food_06/side_left_knife.jpeg;data/custom_dataset/Food_06/side_right_knife.jpeg,multi-view,63.0,61.0,1.03,,,,custom,Egg,multiview,knife
+Food_06_mv_spoon,custom,data/custom_dataset/Food_06/tilt_spoon.jpeg;data/custom_dataset/Food_06/side_left_spoon.jpeg;data/custom_dataset/Food_06/side_right_spoon.jpeg,multi-view,63.0,61.0,1.03,,,,custom,Egg,multiview,spoon
+Food_07_overhead_fork,custom,data/custom_dataset/Food_07/overhead_fork.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,overhead,fork
+Food_07_overhead_knife,custom,data/custom_dataset/Food_07/overhead_knife.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,overhead,knife
+Food_07_overhead_spoon,custom,data/custom_dataset/Food_07/overhead_spoon.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,overhead,spoon
+Food_07_side_left_fork,custom,data/custom_dataset/Food_07/side_left_fork.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_left,fork
+Food_07_side_left_knife,custom,data/custom_dataset/Food_07/side_left_knife.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_left,knife
+Food_07_side_left_spoon,custom,data/custom_dataset/Food_07/side_left_spoon.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_left,spoon
+Food_07_side_right_fork,custom,data/custom_dataset/Food_07/side_right_fork.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_right,fork
+Food_07_side_right_knife,custom,data/custom_dataset/Food_07/side_right_knife.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_right,knife
+Food_07_side_right_spoon,custom,data/custom_dataset/Food_07/side_right_spoon.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,side_right,spoon
+Food_07_tilt_fork,custom,data/custom_dataset/Food_07/tilt_fork.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,tilt,fork
+Food_07_tilt_knife,custom,data/custom_dataset/Food_07/tilt_knife.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,tilt,knife
+Food_07_tilt_spoon,custom,data/custom_dataset/Food_07/tilt_spoon.jpeg,monocular-geometric;deep-learning,66.0,150.0,0.44,,,,custom,Carrot Sticks,tilt,spoon
+Food_07_mv_fork,custom,data/custom_dataset/Food_07/tilt_fork.jpeg;data/custom_dataset/Food_07/side_left_fork.jpeg;data/custom_dataset/Food_07/side_right_fork.jpeg,multi-view,66.0,150.0,0.44,,,,custom,Carrot Sticks,multiview,fork
+Food_07_mv_knife,custom,data/custom_dataset/Food_07/tilt_knife.jpeg;data/custom_dataset/Food_07/side_left_knife.jpeg;data/custom_dataset/Food_07/side_right_knife.jpeg,multi-view,66.0,150.0,0.44,,,,custom,Carrot Sticks,multiview,knife
+Food_07_mv_spoon,custom,data/custom_dataset/Food_07/tilt_spoon.jpeg;data/custom_dataset/Food_07/side_left_spoon.jpeg;data/custom_dataset/Food_07/side_right_spoon.jpeg,multi-view,66.0,150.0,0.44,,,,custom,Carrot Sticks,multiview,spoon
+Food_08_overhead_fork,custom,data/custom_dataset/Food_08/overhead_fork.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,overhead,fork
+Food_08_overhead_knife,custom,data/custom_dataset/Food_08/overhead_knife.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,overhead,knife
+Food_08_overhead_spoon,custom,data/custom_dataset/Food_08/overhead_spoon.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,overhead,spoon
+Food_08_side_left_fork,custom,data/custom_dataset/Food_08/side_left_fork.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_left,fork
+Food_08_side_left_knife,custom,data/custom_dataset/Food_08/side_left_knife.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_left,knife
+Food_08_side_left_spoon,custom,data/custom_dataset/Food_08/side_left_spoon.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_left,spoon
+Food_08_side_right_fork,custom,data/custom_dataset/Food_08/side_right_fork.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_right,fork
+Food_08_side_right_knife,custom,data/custom_dataset/Food_08/side_right_knife.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_right,knife
+Food_08_side_right_spoon,custom,data/custom_dataset/Food_08/side_right_spoon.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,side_right,spoon
+Food_08_tilt_fork,custom,data/custom_dataset/Food_08/tilt_fork.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,tilt,fork
+Food_08_tilt_knife,custom,data/custom_dataset/Food_08/tilt_knife.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,tilt,knife
+Food_08_tilt_spoon,custom,data/custom_dataset/Food_08/tilt_spoon.jpeg,monocular-geometric;deep-learning,263.0,260.0,1.01,,,,custom,Milk,tilt,spoon
+Food_08_mv_fork,custom,data/custom_dataset/Food_08/tilt_fork.jpeg;data/custom_dataset/Food_08/side_left_fork.jpeg;data/custom_dataset/Food_08/side_right_fork.jpeg,multi-view,263.0,260.0,1.01,,,,custom,Milk,multiview,fork
+Food_08_mv_knife,custom,data/custom_dataset/Food_08/tilt_knife.jpeg;data/custom_dataset/Food_08/side_left_knife.jpeg;data/custom_dataset/Food_08/side_right_knife.jpeg,multi-view,263.0,260.0,1.01,,,,custom,Milk,multiview,knife
+Food_08_mv_spoon,custom,data/custom_dataset/Food_08/tilt_spoon.jpeg;data/custom_dataset/Food_08/side_left_spoon.jpeg;data/custom_dataset/Food_08/side_right_spoon.jpeg,multi-view,263.0,260.0,1.01,,,,custom,Milk,multiview,spoon
+Food_10_overhead_fork,custom,data/custom_dataset/Food_10/overhead_fork.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,overhead,fork
+Food_10_overhead_knife,custom,data/custom_dataset/Food_10/overhead_knife.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,overhead,knife
+Food_10_overhead_spoon,custom,data/custom_dataset/Food_10/overhead_spoon.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,overhead,spoon
+Food_10_side_left_fork,custom,data/custom_dataset/Food_10/side_left_fork.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_left,fork
+Food_10_side_left_knife,custom,data/custom_dataset/Food_10/side_left_knife.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_left,knife
+Food_10_side_left_spoon,custom,data/custom_dataset/Food_10/side_left_spoon.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_left,spoon
+Food_10_side_right_fork,custom,data/custom_dataset/Food_10/side_right_fork.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_right,fork
+Food_10_side_right_knife,custom,data/custom_dataset/Food_10/side_right_knife.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_right,knife
+Food_10_side_right_spoon,custom,data/custom_dataset/Food_10/side_right_spoon.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,side_right,spoon
+Food_10_tilt_fork,custom,data/custom_dataset/Food_10/tilt_fork.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,tilt,fork
+Food_10_tilt_knife,custom,data/custom_dataset/Food_10/tilt_knife.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,tilt,knife
+Food_10_tilt_spoon,custom,data/custom_dataset/Food_10/tilt_spoon.jpeg,monocular-geometric;deep-learning,100.0,263.0,0.38,,,,custom,Everything bagel,tilt,spoon
+Food_10_mv_fork,custom,data/custom_dataset/Food_10/tilt_fork.jpeg;data/custom_dataset/Food_10/side_left_fork.jpeg;data/custom_dataset/Food_10/side_right_fork.jpeg,multi-view,100.0,263.0,0.38,,,,custom,Everything bagel,multiview,fork
+Food_10_mv_knife,custom,data/custom_dataset/Food_10/tilt_knife.jpeg;data/custom_dataset/Food_10/side_left_knife.jpeg;data/custom_dataset/Food_10/side_right_knife.jpeg,multi-view,100.0,263.0,0.38,,,,custom,Everything bagel,multiview,knife
+Food_10_mv_spoon,custom,data/custom_dataset/Food_10/tilt_spoon.jpeg;data/custom_dataset/Food_10/side_left_spoon.jpeg;data/custom_dataset/Food_10/side_right_spoon.jpeg,multi-view,100.0,263.0,0.38,,,,custom,Everything bagel,multiview,spoon
+Food_11_overhead_fork,custom,data/custom_dataset/Food_11/overhead_fork.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,overhead,fork
+Food_11_overhead_knife,custom,data/custom_dataset/Food_11/overhead_knife.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,overhead,knife
+Food_11_overhead_spoon,custom,data/custom_dataset/Food_11/overhead_spoon.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,overhead,spoon
+Food_11_side_left_fork,custom,data/custom_dataset/Food_11/side_left_fork.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_left,fork
+Food_11_side_left_knife,custom,data/custom_dataset/Food_11/side_left_knife.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_left,knife
+Food_11_side_left_spoon,custom,data/custom_dataset/Food_11/side_left_spoon.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_left,spoon
+Food_11_side_right_fork,custom,data/custom_dataset/Food_11/side_right_fork.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_right,fork
+Food_11_side_right_knife,custom,data/custom_dataset/Food_11/side_right_knife.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_right,knife
+Food_11_side_right_spoon,custom,data/custom_dataset/Food_11/side_right_spoon.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,side_right,spoon
+Food_11_tilt_fork,custom,data/custom_dataset/Food_11/tilt_fork.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,tilt,fork
+Food_11_tilt_knife,custom,data/custom_dataset/Food_11/tilt_knife.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,tilt,knife
+Food_11_tilt_spoon,custom,data/custom_dataset/Food_11/tilt_spoon.jpeg,monocular-geometric;deep-learning,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,tilt,spoon
+Food_11_mv_fork,custom,data/custom_dataset/Food_11/tilt_fork.jpeg;data/custom_dataset/Food_11/side_left_fork.jpeg;data/custom_dataset/Food_11/side_right_fork.jpeg,multi-view,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,multiview,fork
+Food_11_mv_knife,custom,data/custom_dataset/Food_11/tilt_knife.jpeg;data/custom_dataset/Food_11/side_left_knife.jpeg;data/custom_dataset/Food_11/side_right_knife.jpeg,multi-view,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,multiview,knife
+Food_11_mv_spoon,custom,data/custom_dataset/Food_11/tilt_spoon.jpeg;data/custom_dataset/Food_11/side_left_spoon.jpeg;data/custom_dataset/Food_11/side_right_spoon.jpeg,multi-view,70.0,111.0,0.63,,,,custom,Frozen Mixed Vegetables,multiview,spoon
+Food_12_overhead_fork,custom,data/custom_dataset/Food_12/overhead_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,overhead,fork
+Food_12_overhead_knife,custom,data/custom_dataset/Food_12/overhead_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,overhead,knife
+Food_12_overhead_spoon,custom,data/custom_dataset/Food_12/overhead_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,overhead,spoon
+Food_12_side_left_fork,custom,data/custom_dataset/Food_12/side_left_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_left,fork
+Food_12_side_left_knife,custom,data/custom_dataset/Food_12/side_left_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_left,knife
+Food_12_side_left_spoon,custom,data/custom_dataset/Food_12/side_left_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_left,spoon
+Food_12_side_right_fork,custom,data/custom_dataset/Food_12/side_right_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_right,fork
+Food_12_side_right_knife,custom,data/custom_dataset/Food_12/side_right_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_right,knife
+Food_12_side_right_spoon,custom,data/custom_dataset/Food_12/side_right_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,side_right,spoon
+Food_12_tilt_fork,custom,data/custom_dataset/Food_12/tilt_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,tilt,fork
+Food_12_tilt_knife,custom,data/custom_dataset/Food_12/tilt_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,tilt,knife
+Food_12_tilt_spoon,custom,data/custom_dataset/Food_12/tilt_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked Beans,tilt,spoon
+Food_12_mv_fork,custom,data/custom_dataset/Food_12/tilt_fork.jpeg;data/custom_dataset/Food_12/side_left_fork.jpeg;data/custom_dataset/Food_12/side_right_fork.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked Beans,multiview,fork
+Food_12_mv_knife,custom,data/custom_dataset/Food_12/tilt_knife.jpeg;data/custom_dataset/Food_12/side_left_knife.jpeg;data/custom_dataset/Food_12/side_right_knife.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked Beans,multiview,knife
+Food_12_mv_spoon,custom,data/custom_dataset/Food_12/tilt_spoon.jpeg;data/custom_dataset/Food_12/side_left_spoon.jpeg;data/custom_dataset/Food_12/side_right_spoon.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked Beans,multiview,spoon
+Food_13_overhead_fork,custom,data/custom_dataset/Food_13/overhead_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,overhead,fork
+Food_13_overhead_knife,custom,data/custom_dataset/Food_13/overhead_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,overhead,knife
+Food_13_overhead_spoon,custom,data/custom_dataset/Food_13/overhead_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,overhead,spoon
+Food_13_side_left_fork,custom,data/custom_dataset/Food_13/side_left_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_left,fork
+Food_13_side_left_knife,custom,data/custom_dataset/Food_13/side_left_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_left,knife
+Food_13_side_left_spoon,custom,data/custom_dataset/Food_13/side_left_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_left,spoon
+Food_13_side_right_fork,custom,data/custom_dataset/Food_13/side_right_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_right,fork
+Food_13_side_right_knife,custom,data/custom_dataset/Food_13/side_right_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_right,knife
+Food_13_side_right_spoon,custom,data/custom_dataset/Food_13/side_right_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,side_right,spoon
+Food_13_tilt_fork,custom,data/custom_dataset/Food_13/tilt_fork.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,tilt,fork
+Food_13_tilt_knife,custom,data/custom_dataset/Food_13/tilt_knife.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,tilt,knife
+Food_13_tilt_spoon,custom,data/custom_dataset/Food_13/tilt_spoon.jpeg,monocular-geometric;deep-learning,400.0,374.0,1.07,,,,custom,Baked beans,tilt,spoon
+Food_13_mv_fork,custom,data/custom_dataset/Food_13/tilt_fork.jpeg;data/custom_dataset/Food_13/side_left_fork.jpeg;data/custom_dataset/Food_13/side_right_fork.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked beans,multiview,fork
+Food_13_mv_knife,custom,data/custom_dataset/Food_13/tilt_knife.jpeg;data/custom_dataset/Food_13/side_left_knife.jpeg;data/custom_dataset/Food_13/side_right_knife.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked beans,multiview,knife
+Food_13_mv_spoon,custom,data/custom_dataset/Food_13/tilt_spoon.jpeg;data/custom_dataset/Food_13/side_left_spoon.jpeg;data/custom_dataset/Food_13/side_right_spoon.jpeg,multi-view,400.0,374.0,1.07,,,,custom,Baked beans,multiview,spoon
+Food_14_overhead_fork,custom,data/custom_dataset/Food_14/overhead_fork.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,overhead,fork
+Food_14_overhead_knife,custom,data/custom_dataset/Food_14/overhead_knife.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,overhead,knife
+Food_14_overhead_spoon,custom,data/custom_dataset/Food_14/overhead_spoon.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,overhead,spoon
+Food_14_side_left_fork,custom,data/custom_dataset/Food_14/side_left_fork.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_left,fork
+Food_14_side_left_knife,custom,data/custom_dataset/Food_14/side_left_knife.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_left,knife
+Food_14_side_left_spoon,custom,data/custom_dataset/Food_14/side_left_spoon.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_left,spoon
+Food_14_side_right_fork,custom,data/custom_dataset/Food_14/side_right_fork.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_right,fork
+Food_14_side_right_knife,custom,data/custom_dataset/Food_14/side_right_knife.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_right,knife
+Food_14_side_right_spoon,custom,data/custom_dataset/Food_14/side_right_spoon.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,side_right,spoon
+Food_14_tilt_fork,custom,data/custom_dataset/Food_14/tilt_fork.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,tilt,fork
+Food_14_tilt_knife,custom,data/custom_dataset/Food_14/tilt_knife.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,tilt,knife
+Food_14_tilt_spoon,custom,data/custom_dataset/Food_14/tilt_spoon.jpeg,monocular-geometric;deep-learning,107.0,107.0,1.0,,,,custom,Banana Pealed,tilt,spoon
+Food_14_mv_fork,custom,data/custom_dataset/Food_14/tilt_fork.jpeg;data/custom_dataset/Food_14/side_left_fork.jpeg;data/custom_dataset/Food_14/side_right_fork.jpeg,multi-view,107.0,107.0,1.0,,,,custom,Banana Pealed,multiview,fork
+Food_14_mv_knife,custom,data/custom_dataset/Food_14/tilt_knife.jpeg;data/custom_dataset/Food_14/side_left_knife.jpeg;data/custom_dataset/Food_14/side_right_knife.jpeg,multi-view,107.0,107.0,1.0,,,,custom,Banana Pealed,multiview,knife
+Food_14_mv_spoon,custom,data/custom_dataset/Food_14/tilt_spoon.jpeg;data/custom_dataset/Food_14/side_left_spoon.jpeg;data/custom_dataset/Food_14/side_right_spoon.jpeg,multi-view,107.0,107.0,1.0,,,,custom,Banana Pealed,multiview,spoon
+Food_15_overhead_fork,custom,data/custom_dataset/Food_15/overhead_fork.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,overhead,fork
+Food_15_overhead_knife,custom,data/custom_dataset/Food_15/overhead_knife.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,overhead,knife
+Food_15_side_left_fork,custom,data/custom_dataset/Food_15/side_left_fork.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,side_left,fork
+Food_15_side_left_knife,custom,data/custom_dataset/Food_15/side_left_knife.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,side_left,knife
+Food_15_side_right_fork,custom,data/custom_dataset/Food_15/side_right_fork.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,side_right,fork
+Food_15_side_right_knife,custom,data/custom_dataset/Food_15/side_right_knife.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,side_right,knife
+Food_15_tilt_fork,custom,data/custom_dataset/Food_15/tilt_fork.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,tilt,fork
+Food_15_tilt_knife,custom,data/custom_dataset/Food_15/tilt_knife.jpeg,monocular-geometric;deep-learning,227.0,349.0,0.65,,,,custom,Cooked Rice,tilt,knife
+Food_15_mv_fork,custom,data/custom_dataset/Food_15/tilt_fork.jpeg;data/custom_dataset/Food_15/side_left_fork.jpeg;data/custom_dataset/Food_15/side_right_fork.jpeg,multi-view,227.0,349.0,0.65,,,,custom,Cooked Rice,multiview,fork
+Food_15_mv_knife,custom,data/custom_dataset/Food_15/tilt_knife.jpeg;data/custom_dataset/Food_15/side_left_knife.jpeg;data/custom_dataset/Food_15/side_right_knife.jpeg,multi-view,227.0,349.0,0.65,,,,custom,Cooked Rice,multiview,knife
+Food_16_overhead_fork,custom,data/custom_dataset/Food_16/overhead_fork.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,overhead,fork
+Food_16_overhead_knife,custom,data/custom_dataset/Food_16/overhead_knife.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,overhead,knife
+Food_16_overhead_spoon,custom,data/custom_dataset/Food_16/overhead_spoon.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,overhead,spoon
+Food_16_side_left_fork,custom,data/custom_dataset/Food_16/side_left_fork.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_left,fork
+Food_16_side_left_knife,custom,data/custom_dataset/Food_16/side_left_knife.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_left,knife
+Food_16_side_left_spoon,custom,data/custom_dataset/Food_16/side_left_spoon.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_left,spoon
+Food_16_side_right_fork,custom,data/custom_dataset/Food_16/side_right_fork.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_right,fork
+Food_16_side_right_knife,custom,data/custom_dataset/Food_16/side_right_knife.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_right,knife
+Food_16_side_right_spoon,custom,data/custom_dataset/Food_16/side_right_spoon.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,side_right,spoon
+Food_16_tilt_fork,custom,data/custom_dataset/Food_16/tilt_fork.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,tilt,fork
+Food_16_tilt_knife,custom,data/custom_dataset/Food_16/tilt_knife.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,tilt,knife
+Food_16_tilt_spoon,custom,data/custom_dataset/Food_16/tilt_spoon.jpeg,monocular-geometric;deep-learning,47.0,46.0,1.03,,,,custom,Boiled Egg,tilt,spoon
+Food_16_mv_fork,custom,data/custom_dataset/Food_16/tilt_fork.jpeg;data/custom_dataset/Food_16/side_left_fork.jpeg;data/custom_dataset/Food_16/side_right_fork.jpeg,multi-view,47.0,46.0,1.03,,,,custom,Boiled Egg,multiview,fork
+Food_16_mv_knife,custom,data/custom_dataset/Food_16/tilt_knife.jpeg;data/custom_dataset/Food_16/side_left_knife.jpeg;data/custom_dataset/Food_16/side_right_knife.jpeg,multi-view,47.0,46.0,1.03,,,,custom,Boiled Egg,multiview,knife
+Food_16_mv_spoon,custom,data/custom_dataset/Food_16/tilt_spoon.jpeg;data/custom_dataset/Food_16/side_left_spoon.jpeg;data/custom_dataset/Food_16/side_right_spoon.jpeg,multi-view,47.0,46.0,1.03,,,,custom,Boiled Egg,multiview,spoon
+Food_17_overhead_fork,custom,data/custom_dataset/Food_17/overhead_fork.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,overhead,fork
+Food_17_overhead_knife,custom,data/custom_dataset/Food_17/overhead_knife.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,overhead,knife
+Food_17_overhead_spoon,custom,data/custom_dataset/Food_17/overhead_spoon.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,overhead,spoon
+Food_17_side_left_fork,custom,data/custom_dataset/Food_17/side_left_fork.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_left,fork
+Food_17_side_left_knife,custom,data/custom_dataset/Food_17/side_left_knife.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_left,knife
+Food_17_side_left_spoon,custom,data/custom_dataset/Food_17/side_left_spoon.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_left,spoon
+Food_17_side_right_fork,custom,data/custom_dataset/Food_17/side_right_fork.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_right,fork
+Food_17_side_right_knife,custom,data/custom_dataset/Food_17/side_right_knife.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_right,knife
+Food_17_side_right_spoon,custom,data/custom_dataset/Food_17/side_right_spoon.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,side_right,spoon
+Food_17_tilt_fork,custom,data/custom_dataset/Food_17/tilt_fork.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,tilt,fork
+Food_17_tilt_knife,custom,data/custom_dataset/Food_17/tilt_knife.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,tilt,knife
+Food_17_tilt_spoon,custom,data/custom_dataset/Food_17/tilt_spoon.jpeg,monocular-geometric;deep-learning,274.0,395.0,,,,,custom,Boiled egg on rice,tilt,spoon
+Food_17_mv_fork,custom,data/custom_dataset/Food_17/tilt_fork.jpeg;data/custom_dataset/Food_17/side_left_fork.jpeg;data/custom_dataset/Food_17/side_right_fork.jpeg,multi-view,274.0,395.0,,,,,custom,Boiled egg on rice,multiview,fork
+Food_17_mv_knife,custom,data/custom_dataset/Food_17/tilt_knife.jpeg;data/custom_dataset/Food_17/side_left_knife.jpeg;data/custom_dataset/Food_17/side_right_knife.jpeg,multi-view,274.0,395.0,,,,,custom,Boiled egg on rice,multiview,knife
+Food_17_mv_spoon,custom,data/custom_dataset/Food_17/tilt_spoon.jpeg;data/custom_dataset/Food_17/side_left_spoon.jpeg;data/custom_dataset/Food_17/side_right_spoon.jpeg,multi-view,274.0,395.0,,,,,custom,Boiled egg on rice,multiview,spoon
+Food_18_overhead_fork,custom,data/custom_dataset/Food_18/overhead_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,overhead,fork
+Food_18_overhead_knife,custom,data/custom_dataset/Food_18/overhead_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,overhead,knife
+Food_18_overhead_spoon,custom,data/custom_dataset/Food_18/overhead_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,overhead,spoon
+Food_18_side_left_fork,custom,data/custom_dataset/Food_18/side_left_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_left,fork
+Food_18_side_left_knife,custom,data/custom_dataset/Food_18/side_left_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_left,knife
+Food_18_side_left_spoon,custom,data/custom_dataset/Food_18/side_left_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_left,spoon
+Food_18_side_right_fork,custom,data/custom_dataset/Food_18/side_right_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_right,fork
+Food_18_side_right_knife,custom,data/custom_dataset/Food_18/side_right_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_right,knife
+Food_18_side_right_spoon,custom,data/custom_dataset/Food_18/side_right_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,side_right,spoon
+Food_18_tilt_fork,custom,data/custom_dataset/Food_18/tilt_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,tilt,fork
+Food_18_tilt_knife,custom,data/custom_dataset/Food_18/tilt_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,tilt,knife
+Food_18_tilt_spoon,custom,data/custom_dataset/Food_18/tilt_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad separate,tilt,spoon
+Food_18_mv_fork,custom,data/custom_dataset/Food_18/tilt_fork.jpeg;data/custom_dataset/Food_18/side_left_fork.jpeg;data/custom_dataset/Food_18/side_right_fork.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad separate,multiview,fork
+Food_18_mv_knife,custom,data/custom_dataset/Food_18/tilt_knife.jpeg;data/custom_dataset/Food_18/side_left_knife.jpeg;data/custom_dataset/Food_18/side_right_knife.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad separate,multiview,knife
+Food_18_mv_spoon,custom,data/custom_dataset/Food_18/tilt_spoon.jpeg;data/custom_dataset/Food_18/side_left_spoon.jpeg;data/custom_dataset/Food_18/side_right_spoon.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad separate,multiview,spoon
+Food_19_overhead_fork,custom,data/custom_dataset/Food_19/overhead_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,overhead,fork
+Food_19_overhead_knife,custom,data/custom_dataset/Food_19/overhead_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,overhead,knife
+Food_19_overhead_spoon,custom,data/custom_dataset/Food_19/overhead_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,overhead,spoon
+Food_19_side_left_fork,custom,data/custom_dataset/Food_19/side_left_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_left,fork
+Food_19_side_left_knife,custom,data/custom_dataset/Food_19/side_left_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_left,knife
+Food_19_side_left_spoon,custom,data/custom_dataset/Food_19/side_left_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_left,spoon
+Food_19_side_right_fork,custom,data/custom_dataset/Food_19/side_right_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_right,fork
+Food_19_side_right_knife,custom,data/custom_dataset/Food_19/side_right_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_right,knife
+Food_19_side_right_spoon,custom,data/custom_dataset/Food_19/side_right_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,side_right,spoon
+Food_19_tilt_fork,custom,data/custom_dataset/Food_19/tilt_fork.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,tilt,fork
+Food_19_tilt_knife,custom,data/custom_dataset/Food_19/tilt_knife.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,tilt,knife
+Food_19_tilt_spoon,custom,data/custom_dataset/Food_19/tilt_spoon.jpeg,monocular-geometric;deep-learning,179.0,193.05,,,,,custom,Fruit salad mixed,tilt,spoon
+Food_19_mv_fork,custom,data/custom_dataset/Food_19/tilt_fork.jpeg;data/custom_dataset/Food_19/side_left_fork.jpeg;data/custom_dataset/Food_19/side_right_fork.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad mixed,multiview,fork
+Food_19_mv_knife,custom,data/custom_dataset/Food_19/tilt_knife.jpeg;data/custom_dataset/Food_19/side_left_knife.jpeg;data/custom_dataset/Food_19/side_right_knife.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad mixed,multiview,knife
+Food_19_mv_spoon,custom,data/custom_dataset/Food_19/tilt_spoon.jpeg;data/custom_dataset/Food_19/side_left_spoon.jpeg;data/custom_dataset/Food_19/side_right_spoon.jpeg,multi-view,179.0,193.05,,,,,custom,Fruit salad mixed,multiview,spoon
+Food_20_overhead_fork,custom,data/custom_dataset/Food_20/overhead_fork.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,overhead,fork
+Food_20_overhead_knife,custom,data/custom_dataset/Food_20/overhead_knife.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,overhead,knife
+Food_20_overhead_spoon,custom,data/custom_dataset/Food_20/overhead_spoon.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,overhead,spoon
+Food_20_side_left_fork,custom,data/custom_dataset/Food_20/side_left_fork.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_left,fork
+Food_20_side_left_knife,custom,data/custom_dataset/Food_20/side_left_knife.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_left,knife
+Food_20_side_left_spoon,custom,data/custom_dataset/Food_20/side_left_spoon.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_left,spoon
+Food_20_side_right_fork,custom,data/custom_dataset/Food_20/side_right_fork.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_right,fork
+Food_20_side_right_knife,custom,data/custom_dataset/Food_20/side_right_knife.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_right,knife
+Food_20_side_right_spoon,custom,data/custom_dataset/Food_20/side_right_spoon.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,side_right,spoon
+Food_20_tilt_fork,custom,data/custom_dataset/Food_20/tilt_fork.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,tilt,fork
+Food_20_tilt_knife,custom,data/custom_dataset/Food_20/tilt_knife.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,tilt,knife
+Food_20_tilt_spoon,custom,data/custom_dataset/Food_20/tilt_spoon.jpeg,monocular-geometric;deep-learning,544.0,702.76,,,,,custom,Bagel + banana + milk,tilt,spoon
+Food_20_mv_fork,custom,data/custom_dataset/Food_20/tilt_fork.jpeg;data/custom_dataset/Food_20/side_left_fork.jpeg;data/custom_dataset/Food_20/side_right_fork.jpeg,multi-view,544.0,702.76,,,,,custom,Bagel + banana + milk,multiview,fork
+Food_20_mv_knife,custom,data/custom_dataset/Food_20/tilt_knife.jpeg;data/custom_dataset/Food_20/side_left_knife.jpeg;data/custom_dataset/Food_20/side_right_knife.jpeg,multi-view,544.0,702.76,,,,,custom,Bagel + banana + milk,multiview,knife
+Food_20_mv_spoon,custom,data/custom_dataset/Food_20/tilt_spoon.jpeg;data/custom_dataset/Food_20/side_left_spoon.jpeg;data/custom_dataset/Food_20/side_right_spoon.jpeg,multi-view,544.0,702.76,,,,,custom,Bagel + banana + milk,multiview,spoon
+Food_21_overhead_fork,custom,data/custom_dataset/Food_21/overhead_fork.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,overhead,fork
+Food_21_overhead_knife,custom,data/custom_dataset/Food_21/overhead_knife.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,overhead,knife
+Food_21_overhead_spoon,custom,data/custom_dataset/Food_21/overhead_spoon.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,overhead,spoon
+Food_21_side_left_fork,custom,data/custom_dataset/Food_21/side_left_fork.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_left,fork
+Food_21_side_left_knife,custom,data/custom_dataset/Food_21/side_left_knife.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_left,knife
+Food_21_side_left_spoon,custom,data/custom_dataset/Food_21/side_left_spoon.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_left,spoon
+Food_21_side_right_fork,custom,data/custom_dataset/Food_21/side_right_fork.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_right,fork
+Food_21_side_right_knife,custom,data/custom_dataset/Food_21/side_right_knife.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_right,knife
+Food_21_side_right_spoon,custom,data/custom_dataset/Food_21/side_right_spoon.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,side_right,spoon
+Food_21_tilt_fork,custom,data/custom_dataset/Food_21/tilt_fork.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,tilt,fork
+Food_21_tilt_knife,custom,data/custom_dataset/Food_21/tilt_knife.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,tilt,knife
+Food_21_tilt_spoon,custom,data/custom_dataset/Food_21/tilt_spoon.jpeg,monocular-geometric;deep-learning,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,tilt,spoon
+Food_21_mv_fork,custom,data/custom_dataset/Food_21/tilt_fork.jpeg;data/custom_dataset/Food_21/side_left_fork.jpeg;data/custom_dataset/Food_21/side_right_fork.jpeg,multi-view,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,multiview,fork
+Food_21_mv_knife,custom,data/custom_dataset/Food_21/tilt_knife.jpeg;data/custom_dataset/Food_21/side_left_knife.jpeg;data/custom_dataset/Food_21/side_right_knife.jpeg,multi-view,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,multiview,knife
+Food_21_mv_spoon,custom,data/custom_dataset/Food_21/tilt_spoon.jpeg;data/custom_dataset/Food_21/side_left_spoon.jpeg;data/custom_dataset/Food_21/side_right_spoon.jpeg,multi-view,363.0,610.34,,,,,custom,Rice + veg + carrot mixed together,multiview,spoon
