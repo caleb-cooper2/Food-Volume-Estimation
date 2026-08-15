@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -16,13 +17,15 @@ class JobResult:
     status: JobStatus
     result: Optional[dict] = None
     error_message: Optional[str] = None
+    poll_token: str = ""
 
 jobs: dict[str, JobResult] = {}
 
-def create_job() -> str:
+def create_job() -> tuple[str, str]:
     job_id = str(uuid.uuid4())
-    jobs[job_id] = JobResult(job_id=job_id, status=JobStatus.PENDING)
-    return job_id
+    poll_token = secrets.token_hex(32)
+    jobs[job_id] = JobResult(job_id=job_id, status=JobStatus.PENDING, poll_token=poll_token)
+    return job_id, poll_token
 
 def get_job(job_id: str) -> Optional[JobResult]:
     return jobs.get(job_id)

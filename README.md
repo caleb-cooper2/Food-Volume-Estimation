@@ -259,7 +259,6 @@ Monocular geometric. `multipart/form-data`:
 
 ```json
 "diagnostics": {
-  "participant_code": "P014",
   "food_pixel_count": 184203,
   "food_coverage_pct": 14.8,
   "plate_depth_m": 0.412,
