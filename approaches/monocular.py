@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from PIL import Image
 
 from approaches import read_upload, validate_participant_code
-from job_manager import create_job, get_job, JobStatus, update_job_status
+from job_manager import create_job, get_job, JobStatus, update_job_status, job_queue
 from reference_images import depth_to_b64_png, overlay_food_mask_b64, write_b64_png
 from depth import estimate_depth
 from geometry import extract_image_info, fit_support_plane, compute_volume
@@ -40,23 +40,31 @@ async def submit_volume_estimation(
         scale_ref: str = Form("utensil"),
         text: str = Form("")
 ) -> dict:
+    participant_code = validate_participant_code(participant_code)
+
     image_bytes, pillow_image = await read_upload(file)
+    content_type = file.content_type
 
     job_id, poll_token = create_job()
-
-    asyncio.create_task(
-        process_volume_async(
-            job_id,
-            image_bytes,
-            pillow_image,
-            file.content_type,
-            participant_code,
-            scale_ref,
-            text
-        )
-    )
+    await job_queue.put((job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text))
 
     return {"job_id": job_id, "status": "pending", "poll_token": poll_token}
+
+
+async def job_worker():
+    """
+    Single consumer for job_queue. Runs forever, one job fully to completion before
+    starting the next... only one job can ever touch the GPU at a time
+    """
+    while True:
+        job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text = await job_queue.get()
+        try:
+            await process_volume_async(job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text)
+        except Exception:
+            logger.exception(f"Unhandled error in job_worker for job {job_id}")
+        finally:
+            job_queue.task_done()
+
 
 
 @router.post("/api/v1/poll/{job_id}")
@@ -93,10 +101,7 @@ async def process_volume_async(
     """
     try:
         update_job_status(job_id, JobStatus.PROCESSING)
-
         t_start = time.perf_counter()
-
-        participant_code = validate_participant_code(participant_code)
         logger.info(f"[start] participant={participant_code}")
 
         entities = await extract_entities(text)
@@ -112,7 +117,7 @@ async def process_volume_async(
         )
 
         t_depth_start = time.perf_counter()
-        depth_map, focal_length_px = estimate_depth(pillow_image)
+        depth_map, focal_length_px = await asyncio.to_thread(estimate_depth, pillow_image)
         logger.info(
             f"[B] Depth inference done. "
             f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
@@ -130,10 +135,10 @@ async def process_volume_async(
         )
 
         t_segmentation_start = time.perf_counter()
-        food_items = segment_food_items(pillow_image, entities)
+        food_items = await asyncio.to_thread(segment_food_items, pillow_image, entities)
         if not food_items:
             # No text, or nothing matched a named prompt -> one generic pass so the image path still works
-            generic_mask, generic_scores, _ = segment_food(pillow_image, prompt="food or drink")
+            generic_mask, generic_scores, _ = await asyncio.to_thread(segment_food, pillow_image, prompt="food or drink")
             food_items = [FoodItemResult(prompt="food or drink", mask=generic_mask, score=float(np.mean(generic_scores)) if generic_scores else 0.0)]
 
         make_masks_disjoint(food_items)
@@ -150,7 +155,7 @@ async def process_volume_async(
         logger.info(f"[C] Segmentation done. {len(food_items)} item(s), {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
 
         t_reference_start = time.perf_counter()
-        scale_correction, scale_source = resolve_scale_correction(pillow_image, depth_map, food_mask, image_info, scale_ref)
+        scale_correction, scale_source = await asyncio.to_thread(resolve_scale_correction, pillow_image, depth_map, food_mask, image_info, scale_ref)
 
         if scale_correction is not None:
             depth_map = depth_map * scale_correction
@@ -160,10 +165,10 @@ async def process_volume_async(
 
         t_volume_start = time.perf_counter()
         # One plane for the whole scene: every item sits on the same surface, and fitting per item would reference each food to a slightly different plate
-        plane_n, plane_p0, _ = fit_support_plane(depth_map, food_mask, image_info)
+        plane_n, plane_p0, _ = await asyncio.to_thread(fit_support_plane, depth_map, food_mask, image_info)
 
         for item in food_items:
-            item_volume = compute_volume(depth_map, item.mask, image_info, plane_n, plane_p0)
+            item_volume = await asyncio.to_thread(compute_volume, depth_map, item.mask, image_info, plane_n, plane_p0)
             item.volume_cm3 = item_volume.volume_cm3
             item.geometry_confidence = item_volume.geometry_confidence
             density_block = item.entity["match"]["density"] if item.entity and item.entity.get("match") else None

@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ class JobResult:
     poll_token: str = ""
 
 jobs: dict[str, JobResult] = {}
+job_queue: asyncio.Queue = asyncio.Queue()
 
 def create_job() -> tuple[str, str]:
     job_id = str(uuid.uuid4())
