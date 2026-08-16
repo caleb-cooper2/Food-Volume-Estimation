@@ -259,7 +259,7 @@ async def process_volume_async(
         )
 
         update_job_status(job_id, JobStatus.COMPLETED, result=response.__dict__)
-        record_request(participant_code, image_bytes, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
+        record_request(participant_code, image_bytes, content_type, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {str(e)}")
