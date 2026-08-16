@@ -6,9 +6,11 @@ Single RGB image -> metric depth + food mask -> support plane -> height-field in
 import asyncio
 import secrets
 import time
+import io
 
 import numpy as np
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
+from PIL import Image
 
 from approaches import read_upload, validate_participant_code
 from job_manager import create_job, get_job, JobStatus, update_job_status
@@ -38,9 +40,21 @@ async def submit_volume_estimation(
         scale_ref: str = Form("utensil"),
         text: str = Form("")
 ) -> dict:
+    image_bytes, pillow_image = await read_upload(file)
+
     job_id, poll_token = create_job()
 
-    asyncio.create_task(process_volume_async(job_id, file, participant_code, scale_ref, text))
+    asyncio.create_task(
+        process_volume_async(
+            job_id,
+            image_bytes,
+            pillow_image,
+            file.content_type,
+            participant_code,
+            scale_ref,
+            text
+        )
+    )
 
     return {"job_id": job_id, "status": "pending", "poll_token": poll_token}
 
@@ -63,7 +77,9 @@ async def poll_volume_estimation(job_id: str, poll_token: str) -> dict:
 
 async def process_volume_async(
         job_id: str,
-        file: UploadFile,
+        image_bytes: bytes,
+        pillow_image: Image.Image,
+        content_type: str | None,
         participant_code: str,
         scale_ref: str,
         text: str
@@ -82,8 +98,6 @@ async def process_volume_async(
 
         participant_code = validate_participant_code(participant_code)
         logger.info(f"[start] participant={participant_code}")
-
-        image_bytes, pillow_image = await read_upload(file)
 
         entities = await extract_entities(text)
         actual_w, actual_h = pillow_image.size
@@ -245,7 +259,7 @@ async def process_volume_async(
         )
 
         update_job_status(job_id, JobStatus.COMPLETED, result=response.__dict__)
-        record_request(participant_code, image_bytes, file.content_type, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
+        record_request(participant_code, image_bytes, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {str(e)}")
