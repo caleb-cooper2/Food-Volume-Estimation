@@ -116,6 +116,14 @@ async def process_volume_async(
             f"({time.perf_counter() - t_image_info_start:.3f}s)"
         )
 
+        # completely strip image metadata, requires a package like exiftool to just remove GPS metadata specifically
+        original_format = pillow_image.format or ("JPEG" if content_type == "image/jpeg" else "PNG")
+        pillow_image = Image.frombytes(pillow_image.mode, pillow_image.size, pillow_image.tobytes())
+        strip_buffer = io.BytesIO()
+        save_kwargs = {"quality": 95} if original_format == "JPEG" else {}
+        pillow_image.save(strip_buffer, format=original_format, **save_kwargs)
+        image_bytes = strip_buffer.getvalue()
+
         t_depth_start = time.perf_counter()
         depth_map, focal_length_px = await asyncio.to_thread(estimate_depth, pillow_image)
         logger.info(
