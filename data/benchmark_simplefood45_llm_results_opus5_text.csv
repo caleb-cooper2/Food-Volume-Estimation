@@ -1,0 +1,96 @@
+sample_id,tier,source,approach,arm,pose,utensil,ok,pred_mass_g,pred_volume_cm3,gt_mass_g,gt_volume_cm3,density_used,density_assumed,ref_tilt_deg,confidence,scale_source,scale_factor,n_items,latency_s,error
+apple_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,186.0,240.93,,False,35.6,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_00,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,186.0,240.93,,False,35.6,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,188.0,243.52,,False,32.6,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_01,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,188.0,243.52,,False,32.6,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,190.0,246.11,,False,29.2,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_02,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,190.0,246.11,,False,29.2,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,196.0,253.88,,False,36.4,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_03,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,196.0,253.88,,False,36.4,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+avocado_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,190.0,196.69,,False,30.8,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+avocado_00,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,190.0,196.69,,False,30.8,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+avocado_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,208.0,214.74,,False,31.9,,,,,,401 Client Error: Unauthorized for url: https://openrouter.ai/api/v1/chat/completions
+apple_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,215,250,186.0,240.93,0.772,False,35.6,high,visual_estimate,,1,12.5,
+apple_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,200,220,186.0,240.93,0.772,False,35.6,high,visual_estimate,,1,8.4,
+apple_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,205,235,188.0,243.52,0.772,False,32.6,high,visual_estimate,,1,13.1,
+apple_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,215,250,188.0,243.52,0.772,False,32.6,high,visual_estimate,,1,11.3,
+apple_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,178,200,190.0,246.11,0.772,False,29.2,high,visual_estimate,,1,9.6,
+apple_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,175,200,190.0,246.11,0.772,False,29.2,high,visual_estimate,,1,11.0,
+apple_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,240,265,196.0,253.88,0.772,False,36.4,medium,visual_estimate,,1,12.2,
+apple_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,185,200,196.0,253.88,0.772,False,36.4,medium,visual_estimate,,1,9.2,
+avocado_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,275,295,190.0,196.69,0.966,False,30.8,medium,visual_estimate,,1,9.6,
+avocado_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,225,235,190.0,196.69,0.966,False,30.8,medium,visual_estimate,,1,8.9,
+avocado_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,245,255,208.0,214.74,0.969,False,31.9,medium,visual_estimate,,1,11.7,
+avocado_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,255,265,208.0,214.74,0.969,False,31.9,medium,visual_estimate,,1,8.9,
+avocado_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,180,185,216.0,223.6,0.966,False,36.1,medium,visual_estimate,,1,12.1,
+avocado_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,210,220,216.0,223.6,0.966,False,36.1,medium,visual_estimate,,1,6.9,
+avocado_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,220,228,243.0,251.55,0.966,False,33.0,medium,visual_estimate,,1,10.7,
+avocado_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,250,265,243.0,251.55,0.966,False,33.0,medium,visual_estimate,,1,11.3,
+bagel_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,95,250,100.0,308.19,0.325,False,23.0,high,visual_estimate,,1,10.7,
+bagel_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,92,205,100.0,308.19,0.325,False,23.0,medium,visual_estimate,,1,9.5,
+bagel_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,100,270,92.0,281.09,0.327,False,26.5,medium,visual_estimate,,1,9.5,
+bagel_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,105,290,92.0,281.09,0.327,False,26.5,high,visual_estimate,,1,8.8,
+bagel_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,105,330,93.0,285.18,0.326,False,28.7,medium,visual_estimate,,1,10.2,
+bagel_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,100,250,93.0,285.18,0.326,False,28.7,high,visual_estimate,,1,8.1,
+bagel_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,105,290,98.0,298.98,0.328,False,26.4,high,visual_estimate,,1,10.3,
+bagel_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,100,260,98.0,298.98,0.328,False,26.4,high,visual_estimate,,1,8.4,
+biscuit_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,60,135,45.0,112.36,0.401,False,30.2,medium,visual_estimate,,1,8.2,
+biscuit_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,60,130,45.0,112.36,0.401,False,30.2,medium,visual_estimate,,1,7.9,
+biscuit_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,72,205,45.0,112.36,0.401,False,33.6,medium,visual_estimate,,1,13.6,
+biscuit_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,60,120,45.0,112.36,0.401,False,33.6,medium,visual_estimate,,1,10.6,
+biscuit_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,68,165,46.0,114.86,0.401,False,42.0,medium,visual_estimate,,1,9.3,
+biscuit_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,62,145,46.0,114.86,0.401,False,42.0,medium,visual_estimate,,1,9.1,
+blueberry_muffin_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,130,310,100.0,224.6,0.445,False,42.5,medium,visual_estimate,,1,9.4,
+blueberry_muffin_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,130,320,100.0,224.6,0.445,False,42.5,medium,visual_estimate,,1,7.8,
+blueberry_muffin_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,135,330,100.0,232.74,0.43,False,42.9,medium,visual_estimate,,1,8.6,
+blueberry_muffin_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,120,265,100.0,232.74,0.43,False,42.9,medium,visual_estimate,,1,7.8,
+blueberry_muffin_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,115,250,102.0,226.71,0.45,False,44.5,medium,visual_estimate,,1,12.9,
+blueberry_muffin_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,95,210,102.0,226.71,0.45,False,44.5,medium,visual_estimate,,1,7.4,
+blueberry_muffin_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,130,290,98.0,218.39,0.449,False,52.0,medium,visual_estimate,,1,8.8,
+blueberry_muffin_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,120,260,98.0,218.39,0.449,False,52.0,medium,visual_estimate,,1,8.0,
+broccoli_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,45,55,13.0,23.56,0.552,False,,medium,visual_estimate,,1,11.3,
+broccoli_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,28,35,13.0,23.56,0.552,False,,medium,visual_estimate,,1,9.0,
+broccoli_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,35,40,17.0,30.81,0.552,False,34.6,medium,visual_estimate,,1,7.5,
+broccoli_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,30,33,17.0,30.81,0.552,False,34.6,medium,visual_estimate,,1,5.9,
+broccoli_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,36,42,18.0,32.62,0.552,False,27.5,medium,visual_estimate,,1,7.7,
+broccoli_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,34,40,18.0,32.62,0.552,False,27.5,medium,visual_estimate,,1,6.9,
+broccoli_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,48,95,26.0,47.12,0.552,False,28.4,medium,visual_estimate,,1,8.8,
+broccoli_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,45,70,26.0,47.12,0.552,False,28.4,medium,visual_estimate,,1,6.8,
+chicken_nugget_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,20,28,14.0,21.02,0.666,False,23.9,medium,visual_estimate,,1,11.6,
+chicken_nugget_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,21,23,14.0,21.02,0.666,False,23.9,medium,visual_estimate,,1,10.2,
+chicken_nugget_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,26,34,15.0,22.52,0.666,False,30.0,medium,visual_estimate,,1,11.3,
+chicken_nugget_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,30,35,15.0,22.52,0.666,False,30.0,medium,visual_estimate,,1,11.6,
+chicken_nugget_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,22,26,15.0,22.52,0.666,False,22.7,medium,visual_estimate,,1,10.6,
+chicken_nugget_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,58,68,15.0,22.52,0.666,False,22.7,medium,visual_estimate,,1,11.2,
+chicken_nugget_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,20,24,15.0,22.52,0.666,False,23.4,high,visual_estimate,,1,9.3,
+chicken_nugget_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,25,28,15.0,22.52,0.666,False,23.4,medium,visual_estimate,,1,9.3,
+cinnamon_roll_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,135,250,65.0,189.83,0.342,False,27.3,medium,visual_estimate,,2,10.6,
+cinnamon_roll_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,120,235,65.0,189.83,0.342,False,27.3,medium,visual_estimate,,2,9.2,
+cinnamon_roll_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,105,215,76.0,221.95,0.342,False,26.8,medium,visual_estimate,,2,11.6,
+cinnamon_roll_01,simplefood45,simplefood45,llm,sizeprior_notext,,,True,130,275,76.0,221.95,0.342,False,26.8,medium,visual_estimate,,2,12.1,
+cinnamon_roll_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,130,265,91.0,265.76,0.342,False,21.2,medium,visual_estimate,,2,12.6,
+cinnamon_roll_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,85,180,91.0,265.76,0.342,False,21.2,medium,visual_estimate,,2,12.0,
+cinnamon_roll_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,125,205,96.0,280.36,0.342,False,27.3,medium,visual_estimate,,2,10.9,
+cinnamon_roll_03,simplefood45,simplefood45,llm,sizeprior_notext,,,True,120,245,96.0,280.36,0.342,False,27.3,medium,visual_estimate,,2,8.1,
+corn_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,270,285,210.0,263.1,0.798,False,37.5,high,visual_estimate,,1,8.4,
+corn_00,simplefood45,simplefood45,llm,sizeprior_notext,,,True,265,270,210.0,263.1,0.798,False,37.5,high,visual_estimate,,1,8.7,
+corn_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,265,270,237.0,296.93,0.798,False,41.2,medium,visual_estimate,,1,9.6,
+corn_01,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,237.0,296.93,,False,41.2,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+corn_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,True,300,290,245.0,306.95,0.798,False,31.6,medium,visual_estimate,,1,6.1,
+corn_02,simplefood45,simplefood45,llm,sizeprior_notext,,,True,290,300,245.0,306.95,0.798,False,31.6,high,visual_estimate,,1,8.1,
+croissant_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,41.0,157.06,,False,36.8,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_00,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,41.0,157.06,,False,36.8,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,42.0,176.56,,False,30.7,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_01,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,42.0,176.56,,False,30.7,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,45.0,181.7,,False,22.3,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_02,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,45.0,181.7,,False,22.3,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,46.0,170.28,,False,27.9,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+croissant_03,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,46.0,170.28,,False,27.9,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_00,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,16.0,18.01,,False,,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_00,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,16.0,18.01,,False,,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_01,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,16.0,18.01,,False,25.3,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_01,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,16.0,18.01,,False,25.3,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_02,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,18.0,20.26,,False,,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_02,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,18.0,20.26,,False,,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_03,simplefood45,simplefood45,llm,sizeprior_nlp,,,False,,,23.0,25.89,,False,35.2,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions
+strawberry_03,simplefood45,simplefood45,llm,sizeprior_notext,,,False,,,23.0,25.89,,False,35.2,,,,,,402 Client Error: Payment Required for url: https://openrouter.ai/api/v1/chat/completions

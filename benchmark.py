@@ -52,8 +52,8 @@ BENCHMARK_ARMS = {
 SINGLE_IMAGE_APPROACHES = {"monocular-geometric", "deep-learning", "llm"}
 
 DEFAULT_ARMS_BY_SOURCE = {
-    "simplefood45": ["checkerboard", "sizeprior_notext"],
-    "custom": ["utensil_nlp", "utensil_notext", "sizeprior_nlp", "sizeprior_notext"],
+    "simplefood45": ["checkerboard", "sizeprior_nlp", "sizeprior_notext"],
+    "custom": ["utensil_nlp", "utensil_notext", "sizeprior_nlp", "sizeprior_notext"]
 }
 
 DEFAULT_DENSITY_G_CM3 = 0.8  # only used to bridge units when a sample has no measured density
@@ -302,13 +302,33 @@ def run_benchmark(args) -> None:
 
 
 def arms_for_approach(approach: str, arms: list[str]) -> list[str]:
-    """deep-learning ignores scale_ref and text, multi-view ignores text -> don't re-send identical requests"""
+    """deep-learning ignores scale_ref and text, multi-view ignores text, and the llm approach ignores
+    scale_ref as it guesses it -> don't re-send identical requests"""
     if approach == "deep-learning":
         return ["none"]
-    if approach == "multi-view":
+    elif approach == "multi-view":
         no_text = [a for a in arms if not BENCHMARK_ARMS[a]["use_text"]]
         return no_text or arms[:1]
+    elif approach == "llm":
+        return llm_arms(arms)
     return arms
+
+
+LLM_ARM_PREFERENCE = ("sizeprior_nlp", "utensil_nlp", "sizeprior_notext", "utensil_notext")
+
+
+def llm_arms(arms: list[str]) -> list[str]:
+    """The OpenRouter call only varies on whether text is sent, so keep at most one nlp arm and one notext
+    arm from whatever the caller passed in. Prefer sizeprior/utensil names (rather than e.g. checkerboard
+    or none) since those are what summarise_nlp_effect pairs up for RQ3"""
+    ordered = [a for a in LLM_ARM_PREFERENCE if a in arms] + [a for a in arms if a not in LLM_ARM_PREFERENCE]
+    kept, seen_use_text = [], set()
+    for arm in ordered:
+        use_text = BENCHMARK_ARMS[arm]["use_text"]
+        if use_text not in seen_use_text:
+            seen_use_text.add(use_text)
+            kept.append(arm)
+    return kept
 
 
 def score_one(sample_id, tier, source, approach, arm, row, image_paths, gt_mass, gt_volume, density, ref_tilt) -> ResultRow:
@@ -585,7 +605,8 @@ def build_simplefood45_manifest(args) -> None:
                     "scale_ref": "checkerboard",
                     "ref_scale_cm_per_px": pose.scale_cm_per_px if pose.found else "",
                     "ref_tilt_deg": pose.tilt_deg if pose.found else "",
-                    "source": "simplefood45"
+                    "source": "simplefood45",
+                    "text": label
                 })
                 n_items += 1
     logger.info(f"Wrote {n_items} items across {len(groups)} GT groups ({n_missing} labelled images not found on disk, {n_no_board} items without a detected board) -> {out_path}")

@@ -2,7 +2,7 @@ import logging
 
 from rich.logging import RichHandler
 
-LOG_LEVEL = "INFO"  # change to DEBUG for more in depth logs, WARNING for less
+LOG_LEVEL = "DEBUG"  # change to DEBUG for more in depth logs, WARNING for less
 
 
 def get_logger(name):
