@@ -4,6 +4,7 @@ Approach A - Monocular geometric
 Single RGB image -> metric depth + food mask -> support plane -> height-field integral
 """
 import asyncio
+import base64
 import secrets
 import time
 import io
@@ -13,7 +14,7 @@ from fastapi import APIRouter, File, UploadFile, Form, HTTPException
 from PIL import Image
 
 from approaches import read_upload, validate_participant_code
-from job_manager import create_job, get_job, JobStatus, update_job_status, job_queue
+from job_manager import create_job, get_job, JobStatus, update_job_status, dequeue_job, enqueue_job
 from reference_images import depth_to_b64_png, overlay_food_mask_b64, write_b64_png
 from depth import estimate_depth
 from geometry import extract_image_info, fit_support_plane, compute_volume
@@ -41,35 +42,37 @@ async def submit_volume_estimation(
         text: str = Form("")
 ) -> dict:
     participant_code = validate_participant_code(participant_code)
-
     image_bytes, pillow_image = await read_upload(file)
     content_type = file.content_type
 
-    job_id, poll_token = create_job()
-    await job_queue.put((job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text))
+    job_id, poll_token = await create_job()
+    await enqueue_job(job_id, image_bytes, content_type, participant_code, scale_ref, text)
 
     return {"job_id": job_id, "status": "pending", "poll_token": poll_token}
 
 
 async def job_worker():
     """
-    Single consumer for job_queue. Runs forever, one job fully to completion before
+    Single consumer for the redis queue. Runs forever, one job fully to completion before
     starting the next... only one job can ever touch the GPU at a time
     """
     while True:
-        job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text = await job_queue.get()
+        item = await dequeue_job()
+        if item is None:
+            continue
+        job_id, payload = item
+        image_bytes = base64.b64decode(payload["image_b64"])
+        pillow_image = Image.open(io.BytesIO(image_bytes))
         try:
-            await process_volume_async(job_id, image_bytes, pillow_image, content_type, participant_code, scale_ref, text)
+            await process_volume_async(job_id, image_bytes, pillow_image, payload["content_type"], payload["participant_code"], payload["scale_ref"], payload["text"])
         except Exception:
             logger.exception(f"Unhandled error in job_worker for job {job_id}")
-        finally:
-            job_queue.task_done()
 
 
 
 @router.post("/api/v1/poll/{job_id}")
 async def poll_volume_estimation(job_id: str, poll_token: str) -> dict:
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if not secrets.compare_digest(job.poll_token, poll_token):
@@ -100,7 +103,7 @@ async def process_volume_async(
     4. Integrate volume from height field
     """
     try:
-        update_job_status(job_id, JobStatus.PROCESSING)
+        await update_job_status(job_id, JobStatus.PROCESSING)
         t_start = time.perf_counter()
         logger.info(f"[start] participant={participant_code}")
 
@@ -271,9 +274,9 @@ async def process_volume_async(
             }
         )
 
-        update_job_status(job_id, JobStatus.COMPLETED, result=response.__dict__)
+        await update_job_status(job_id, JobStatus.COMPLETED, result=response.__dict__)
         record_request(participant_code, image_bytes, content_type, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {str(e)}")
-        update_job_status(job_id, JobStatus.FAILED, error_message=str(e))
+        await update_job_status(job_id, JobStatus.FAILED, error_message=str(e))

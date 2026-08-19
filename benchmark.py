@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 API_BASE_URL = os.environ.get("VOLUME_API_URL", "http://localhost:8001")
 
 ENDPOINTS = {
-    "monocular-geometric": f"{API_BASE_URL}/api/v1/estimate-volume",
+    "monocular-geometric": f"{API_BASE_URL}/api/v1/submit",
     "deep-learning": f"{API_BASE_URL}/api/v1/estimate-volume-dl",
     "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview"
 }
@@ -59,6 +59,7 @@ DEFAULT_ARMS_BY_SOURCE = {
 DEFAULT_DENSITY_G_CM3 = 0.8  # only used to bridge units when a sample has no measured density
 MULTIVIEW_MAX_FRAMES = 3  # evenly spaced frames handed to the multi-view endpoint
 REQUEST_TIMEOUT_S = 600 # model inference on CPU/MPS is slow so give it room
+MONOCULAR_POLL_INTERVAL_S = 3.0
 
 TILT_BUCKETS = ((0.0, 15.0, "overhead"), (15.0, 35.0, "mild"), (35.0, 999.0, "oblique"))
 
@@ -143,6 +144,9 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     if approach == "llm":
         return call_llm(image_paths, text)
 
+    if approach == "monocular-geometric":
+        return call_monocular_async(image_paths, scale_ref, text)
+
     url = ENDPOINTS[approach]
     if approach in SINGLE_IMAGE_APPROACHES:
         files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
@@ -161,6 +165,41 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def call_monocular_async(image_paths: list[Path], scale_ref: str, text: str) -> dict:
+    """Need to handle the job queue, submit the job and then poll for the result"""
+    files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
+
+    resp = requests.post(
+        ENDPOINTS["monocular-geometric"],
+        files=files,
+        data={"participant_code": BENCHMARK_PARTICIPANT_CODE, "scale_ref": scale_ref, "text": text},
+        timeout=30
+    )
+    resp.raise_for_status()
+
+    submitted = resp.json()
+    return poll_monocular_job(submitted["job_id"], submitted["poll_token"])
+
+
+def poll_monocular_job(job_id: str, poll_token: str, timeout_s: float = REQUEST_TIMEOUT_S) -> dict:
+    deadline = time.perf_counter() + timeout_s
+    poll_url = f"{API_BASE_URL}/api/v1/poll/{job_id}"
+
+    while time.perf_counter() < deadline:
+        resp = requests.post(poll_url, params={"poll_token": poll_token}, timeout=timeout_s)
+        resp.raise_for_status()
+        body = resp.json()
+
+        if body["status"] == "completed":
+            return body["result"]
+        elif body["status"] == "failed":
+            raise RuntimeError(body.get("error_message", f"job {job_id} failed with no error_message"))
+
+        time.sleep(MONOCULAR_POLL_INTERVAL_S)
+
+    raise TimeoutError(f"job {job_id} still '{body.get('status', 'unknown')}' after {timeout_s:.0f}s")
 
 
 def call_llm(image_paths: list[Path], text: str) -> dict:
