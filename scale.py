@@ -60,18 +60,6 @@ def is_plausible(correction: float) -> bool:
     return low <= correction <= high
 
 
-def reference_scale_factor(pillow_image: Image.Image, depth_map: np.ndarray, cam: CameraInfo, utensil: str = "fork") -> Optional[float]:
-    """
-    Recover the absolute-scale correction from a utensil of known real length: measure its 3D length in the depth model's (up-to-scale) units and
-    divide the known length by it. Returns the factor to multiply the depth map by, or None if no reliable reference was found (caller then falls back to
-    the reference-free path)
-    """
-    result = reference_scale_factor_with_confidence(pillow_image, depth_map, cam, utensil=utensil)
-    if result is None:
-        return None
-    correction, _ = result
-    return correction
-
 def reference_scale_factor_with_confidence(
         pillow_image: Image.Image,
         depth_map: np.ndarray,
@@ -202,8 +190,13 @@ def resolve_scale_correction(
                 f"score={score:.3f} -> depth scale x{correction:.3f}"
             )
 
-    if scale_ref == "checkerboard":
+    if scale_ref == "size_prior" or (scale_ref == "auto" and correction is None):
+        correction = predict_scale_from_size_prior(pillow_image, depth_map, food_mask, cam)
+        source = "size_prior" if correction is not None else "none"
+
+    elif scale_ref == "checkerboard":
         correction = checkerboard_scale_factor(pillow_image, depth_map, cam)
         source = "checkerboard" if correction is not None else "none"
+
 
     return correction, source
