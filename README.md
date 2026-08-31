@@ -113,9 +113,9 @@ DATA_ROOT=/srv/study/AppUsage uvicorn main:app --host 0.0.0.0 --port 8001
 
 ## Training the Volume Estimation Model
 
-The training pipeline fine-tunes a ConvNeXt-Tiny regression model on the Nutrition5k dataset to predict food **mass** (in g) from a single overhead RGB image. Mass is the honest target here and matches the Nutrition5k baselines; `--target volume_density` can instead regress a density-derived volume. By default the target is regressed in log space (`--log_target`) since it's heavily skewed.
+The training pipeline fine-tunes a ConvNeXt-Tiny regression model on the Nutrition5k dataset to predict food **mass** (in g) from a single overhead RGB image. Mass matches the Nutrition5k baselines, `--target volume_density` can instead regress a density-derived volume. By default the target is regressed in log space (`--log_target`) since the data is quite skewed.
 
-Optionally, `--use_volume` turns on volume-assisted regression: a cached geometric volume scalar (the same one the `/estimate-volume` endpoint computes) is concatenated into the regression head, so the model gets a real-world size cue alongside the RGB features. This needs the scalar cache built first, see [Volume-assisted regression](#volume-assisted-regression).
+Optionally, `--use_volume` turns on volume-assisted regression. A cached geometric volume scalar (the same one the `/estimate-volume` endpoint computes) is concatenated into the regression head, so the model gets a real-world size cue alongside the RGB features. This needs the scalar cache built first, see [Volume-assisted regression](#volume-assisted-regression).
 
 Training runs in two phases:
 
@@ -259,7 +259,6 @@ Monocular geometric. `multipart/form-data`:
 
 ```json
 "diagnostics": {
-  "participant_code": "P014",
   "food_pixel_count": 184203,
   "food_coverage_pct": 14.8,
   "plate_depth_m": 0.412,
