@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 API_BASE_URL = os.environ.get("VOLUME_API_URL", "http://localhost:8001")
 
 ENDPOINTS = {
-    "monocular-geometric": f"{API_BASE_URL}/api/v1/submit",
+    "monocular-geometric": f"{API_BASE_URL}/api/v1/temp-monocular",
     "deep-learning": f"{API_BASE_URL}/api/v1/estimate-volume-dl",
     "multi-view": f"{API_BASE_URL}/api/v1/estimate-volume-multiview"
 }
@@ -145,9 +145,6 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     if approach == "llm":
         return call_llm(image_paths, text)
 
-    if approach == "monocular-geometric":
-        return call_monocular_async(image_paths, scale_ref, text)
-
     url = ENDPOINTS[approach]
     if approach in SINGLE_IMAGE_APPROACHES:
         files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
@@ -168,46 +165,46 @@ def call_volume_endpoint(approach: str, image_paths: list[Path], scale_ref: str,
     return resp.json()
 
 
-def call_monocular_async(image_paths: list[Path], scale_ref: str, text: str) -> dict:
-    """Need to handle the job queue, submit the job and then poll for the result"""
-    files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
+# def call_monocular_async(image_paths: list[Path], scale_ref: str, text: str) -> dict:
+#     """Need to handle the job queue, submit the job and then poll for the result"""
+#     files = {"file": file_tuple(image_paths[len(image_paths) // 2])}
+#
+#     resp = requests.post(
+#         ENDPOINTS["monocular-geometric"],
+#         files=files,
+#         data={"participant_code": BENCHMARK_PARTICIPANT_CODE, "scale_ref": scale_ref, "text": text},
+#         timeout=MONOCULAR_SUBMIT_TIMEOUT_S
+#     )
+#     resp.raise_for_status()
+#
+#     submitted = resp.json()
+#     return poll_monocular_job(submitted["job_id"], submitted["poll_token"])
 
-    resp = requests.post(
-        ENDPOINTS["monocular-geometric"],
-        files=files,
-        data={"participant_code": BENCHMARK_PARTICIPANT_CODE, "scale_ref": scale_ref, "text": text},
-        timeout=MONOCULAR_SUBMIT_TIMEOUT_S
-    )
-    resp.raise_for_status()
 
-    submitted = resp.json()
-    return poll_monocular_job(submitted["job_id"], submitted["poll_token"])
-
-
-def poll_monocular_job(job_id: str, poll_token: str, timeout_s: float = REQUEST_TIMEOUT_S) -> dict:
-    deadline = time.perf_counter() + timeout_s
-    poll_url = f"{API_BASE_URL}/api/v1/poll/{job_id}"
-    last_status = "unknown"
-
-    while time.perf_counter() < deadline:
-        remaining = deadline - time.perf_counter()
-        try:
-            resp = requests.post(poll_url, params={"poll_token": poll_token}, timeout=min(30, remaining))
-            resp.raise_for_status()
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-            logger.warning(f"job {job_id}: poll request failed ({e}), still waiting on same job")
-            continue
-
-        body = resp.json()
-        last_status = body["status"]
-        if last_status == "completed":
-            return body["result"]
-        elif last_status == "failed":
-            raise RuntimeError(body.get("error_message", f"job {job_id} failed with no error_message"))
-
-        time.sleep(MONOCULAR_POLL_INTERVAL_S)
-
-    raise TimeoutError(f"job {job_id} still '{last_status}' after {timeout_s:.0f}s")
+# def poll_monocular_job(job_id: str, poll_token: str, timeout_s: float = REQUEST_TIMEOUT_S) -> dict:
+#     deadline = time.perf_counter() + timeout_s
+#     poll_url = f"{API_BASE_URL}/api/v1/poll/{job_id}"
+#     last_status = "unknown"
+#
+#     while time.perf_counter() < deadline:
+#         remaining = deadline - time.perf_counter()
+#         try:
+#             resp = requests.post(poll_url, params={"poll_token": poll_token}, timeout=min(30, remaining))
+#             resp.raise_for_status()
+#         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+#             logger.warning(f"job {job_id}: poll request failed ({e}), still waiting on same job")
+#             continue
+#
+#         body = resp.json()
+#         last_status = body["status"]
+#         if last_status == "completed":
+#             return body["result"]
+#         elif last_status == "failed":
+#             raise RuntimeError(body.get("error_message", f"job {job_id} failed with no error_message"))
+#
+#         time.sleep(MONOCULAR_POLL_INTERVAL_S)
+#
+#     raise TimeoutError(f"job {job_id} still '{last_status}' after {timeout_s:.0f}s")
 
 
 def call_llm(image_paths: list[Path], text: str) -> dict:
