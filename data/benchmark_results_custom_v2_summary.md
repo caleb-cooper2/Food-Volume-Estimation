@@ -1,31 +1,35 @@
 # Benchmark summary
 
-Generated 2026-09-03 12:00 from `benchmark_results_custom_v2.csv` (38 scored results)
+Generated 2026-09-10 12:07 from `benchmark_results_custom_v2.csv` (163 scored results)
 
 ```
 RQ2 - volume MAPE vs ground truth (success < 20%):
-  deep-learning            33.4%  (n=7)  -> FAIL
-  monocular-geometric      66.1%  (n=31)  -> FAIL
+  deep-learning            38.0%  (n=30)  -> FAIL
+  monocular-geometric     116.0%  (n=121)  -> FAIL
+  multi-view              122.0%  (n=12)  -> FAIL
 
 RQ3 - NLP text vs image-only, paired per image (success: text reduces error):
-  utensil       -1.4pp over 8 pairs, 8/8 better, sign p=0.008  -> PASS
-  sizeprior     -1.0pp over 7 pairs, 5/7 better, sign p=0.453  -> PASS
+  utensil     -266.0pp over 30 pairs, 17/30 better, sign p=0.585  -> PASS
+  sizeprior     -2.2pp over 30 pairs, 10/30 better, sign p=0.099  -> PASS
 
 ======================================================================
 approach                 n  V-MAPE%  V-bias%  M-MAPE%  R2(mass)  lat_s
 ----------------------------------------------------------------------
-deep-learning            7     33.4    -33.4     33.5       nan    3.4
-monocular-geometric     31     66.1     61.4     52.9       nan   47.1
+deep-learning           30     38.0    -38.0     38.0     -3.20    3.9
+monocular-geometric    121    116.0     98.9    110.8   -824.28   49.1
+multi-view              12    122.0     78.0    121.9    -41.62   25.0
 ======================================================================
 
 ==============================================================================================================================
 approach              arm                  n  V-MAPE%  V-bias%  M-MAPE%  lat_s    overhead        tilt   side_left  side_right
 ------------------------------------------------------------------------------------------------------------------------------
-deep-learning         none                 7     33.4    -33.4        -    3.4        26.4           -        37.1        43.3
-monocular-geometric   sizeprior_nlp        8     62.8     50.7     45.8   61.1       131.9           -        23.2        18.7
-monocular-geometric   sizeprior_notext     7     69.4     62.4        -   35.8       133.3           -        23.5        15.5
-monocular-geometric   utensil_nlp          8     65.5     65.5     31.9   55.5        90.4           -        46.2        57.3
-monocular-geometric   utensil_notext       8     66.9     66.9        -   34.5        91.3           -        47.8        59.1
+deep-learning         none                30     38.0    -38.0        -    3.9        32.1        32.9        40.9        47.7
+monocular-geometric   sizeprior_nlp       30     39.2      8.7     31.4   59.2        62.4        34.2        27.4        27.1
+monocular-geometric   sizeprior_notext    30     41.4      4.7        -   43.1        62.8        44.4        27.4        27.4
+monocular-geometric   utensil_nlp         31     58.7     57.6     46.8   51.9        62.1        75.8        39.1        64.9
+monocular-geometric   utensil_notext      30    326.4    325.9        -   42.0        62.3      1404.5        39.7        74.3
+multi-view            sizeprior_notext     6     75.0     20.3        -   25.4           -           -           -           -
+multi-view            utensil_notext       6    169.1    135.7        -   24.6           -           -           -           -
 ==============================================================================================================================
 
 ```
