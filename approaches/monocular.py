@@ -288,7 +288,7 @@ async def submit_volume_estimation_benchmarking(
         participant_code: str = Form(...),
         scale_ref: str = Form("utensil"),
         text: str = Form("")
-) -> dict:
+) -> EstimationResponse:
     """
     End-to-end volume estimation pipeline:
     1. Extract camera intrinsics from EXIF
@@ -324,7 +324,7 @@ async def submit_volume_estimation_benchmarking(
     image_bytes = strip_buffer.getvalue()
 
     t_depth_start = time.perf_counter()
-    depth_map, focal_length_px = await estimate_depth(pillow_image)
+    depth_map, focal_length_px = estimate_depth(pillow_image)
     logger.info(
         f"[B] Depth inference done. "
         f"Range: [{depth_map.min():.3f}, {depth_map.max():.3f}] m "
@@ -342,10 +342,10 @@ async def submit_volume_estimation_benchmarking(
     )
 
     t_segmentation_start = time.perf_counter()
-    food_items = await segment_food_items(pillow_image, entities)
+    food_items = segment_food_items(pillow_image, entities)
     if not food_items:
         # No text, or nothing matched a named prompt -> one generic pass so the image path still works
-        generic_mask, generic_scores, _ = await segment_food(pillow_image, prompt="food or drink")
+        generic_mask, generic_scores, _ = segment_food(pillow_image, prompt="food or drink")
         food_items = [FoodItemResult(prompt="food or drink", mask=generic_mask, score=float(np.mean(generic_scores)) if generic_scores else 0.0)]
 
     make_masks_disjoint(food_items)
@@ -362,7 +362,7 @@ async def submit_volume_estimation_benchmarking(
     logger.info(f"[C] Segmentation done. {len(food_items)} item(s), {food_pixel_count} food px ({food_coverage_pct:.1f}%) ({time.perf_counter() - t_segmentation_start:.3f}s)")
 
     t_reference_start = time.perf_counter()
-    scale_correction, scale_source = await resolve_scale_correction(pillow_image, depth_map, food_mask, image_info, scale_ref)
+    scale_correction, scale_source = resolve_scale_correction(pillow_image, depth_map, food_mask, image_info, scale_ref)
 
     if scale_correction is not None:
         depth_map = depth_map * scale_correction
@@ -372,10 +372,10 @@ async def submit_volume_estimation_benchmarking(
 
     t_volume_start = time.perf_counter()
     # One plane for the whole scene: every item sits on the same surface, and fitting per item would reference each food to a slightly different plate
-    plane_n, plane_p0, _ = await fit_support_plane(depth_map, food_mask, image_info)
+    plane_n, plane_p0, _ = fit_support_plane(depth_map, food_mask, image_info)
 
     for item in food_items:
-        item_volume = await compute_volume(depth_map, item.mask, image_info, plane_n, plane_p0)
+        item_volume = compute_volume(depth_map, item.mask, image_info, plane_n, plane_p0)
         item.volume_cm3 = item_volume.volume_cm3
         item.geometry_confidence = item_volume.geometry_confidence
         density_block = item.entity["match"]["density"] if item.entity and item.entity.get("match") else None
@@ -470,8 +470,8 @@ async def submit_volume_estimation_benchmarking(
         }
     )
 
-    await update_job_status(job_id, JobStatus.COMPLETED, result=response.__dict__)
     record_request(participant_code, image_bytes, content_type, {"text": text, "scale_ref": scale_ref, "entities": entities}, response)
+    return response
 
 
 
