@@ -1358,9 +1358,9 @@ Food_21_tilt_spoon,custom,custom,monocular-geometric,utensil_notext,tilt,spoon,T
 Food_21_tilt_spoon,custom,custom,monocular-geometric,sizeprior_nlp,tilt,spoon,True,215.7,338.33,363.0,610.34,0.8,False,,medium,size_prior,0.7206,3,19.9,
 Food_21_tilt_spoon,custom,custom,monocular-geometric,sizeprior_notext,tilt,spoon,True,258.5,323.12,363.0,610.34,0.8,True,,medium,size_prior,0.7009,1,14.2,
 Food_21_tilt_spoon,custom,custom,deep-learning,none,tilt,spoon,True,100.03,125.04,363.0,610.34,0.8,True,,,,,0,2.4,
-Food_21_mv_fork,custom,custom,multi-view,utensil_notext,multiview,fork,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
-Food_21_mv_fork,custom,custom,multi-view,sizeprior_notext,multiview,fork,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
-Food_21_mv_knife,custom,custom,multi-view,utensil_notext,multiview,knife,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
-Food_21_mv_knife,custom,custom,multi-view,sizeprior_notext,multiview,knife,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
-Food_21_mv_spoon,custom,custom,multi-view,utensil_notext,multiview,spoon,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
-Food_21_mv_spoon,custom,custom,multi-view,sizeprior_notext,multiview,spoon,False,,,363.0,610.34,,False,,,,,,,404 Client Error: Not Found for url: https://ftas.csse.canterbury.ac.nz/api/v1/estimate-volume-multiview
+Food_21_mv_fork,custom,custom,multi-view,utensil_notext,multiview,fork,True,969.34,1211.67,363.0,610.34,0.8,True,,,utensil,,0,18.9,
+Food_21_mv_fork,custom,custom,multi-view,sizeprior_notext,multiview,fork,True,463.22,579.03,363.0,610.34,0.8,True,,,size_prior,,0,20.2,
+Food_21_mv_knife,custom,custom,multi-view,utensil_notext,multiview,knife,True,0.0,0.0,363.0,610.34,0.8,True,,,utensil,,0,15.5,
+Food_21_mv_knife,custom,custom,multi-view,sizeprior_notext,multiview,knife,True,0.0,0.0,363.0,610.34,0.8,True,,,size_prior,,0,23.9,
+Food_21_mv_spoon,custom,custom,multi-view,utensil_notext,multiview,spoon,True,1272.89,1591.11,363.0,610.34,0.8,True,,,utensil,,0,18.0,
+Food_21_mv_spoon,custom,custom,multi-view,sizeprior_notext,multiview,spoon,True,455.28,569.1,363.0,610.34,0.8,True,,,size_prior,,0,18.4,
