@@ -295,6 +295,8 @@ async def submit_volume_estimation_benchmarking(
     2. Estimate metric depth map (DepthPro)
     3. Segment food region (SAM 3)
     4. Integrate volume from height field
+
+    This endpoint is only used for benchmarking, running each request synchronously and returning the result straight away
     """
     participant_code = validate_participant_code(participant_code)
     image_bytes, pillow_image = await read_upload(file)
