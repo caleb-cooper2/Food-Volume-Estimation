@@ -296,7 +296,8 @@ async def submit_volume_estimation_benchmarking(
     3. Segment food region (SAM 3)
     4. Integrate volume from height field
 
-    This endpoint is only used for benchmarking, running each request synchronously and returning the result straight away
+    This endpoint would only used for benchmarking, running each request synchronously and returning the result straight away
+    (not currently used, but left for reference)
     """
     participant_code = validate_participant_code(participant_code)
     image_bytes, pillow_image = await read_upload(file)
