@@ -14,6 +14,8 @@ from schemas import FoodItemResult
 logger = get_logger(__name__)
 
 sam3_processor = Sam3Processor.from_pretrained("facebook/sam3")
+CIRCLE_RADIUS_FRACTION = 0.35
+PROMPT_FALLBACKS = ["food or drink", "food"]
 
 
 def _load_sam3_model():
@@ -24,61 +26,78 @@ def _load_sam3_model():
 register_loader("sam3", _load_sam3_model)
 
 
-def segment_food(pillow_image: Image.Image, threshold: float = 0.3, prompt="food or drink") -> tuple[np.ndarray, list[float], list[np.ndarray]]:
+def get_central_circle_mask(img_h: int, img_w: int) -> np.ndarray:
     """
-    Segment food region using SAM 3 with text prompt "food or drink".
-    Falls back to full-image mask if no instances found.
+    Creates a circular mask centered in the image, using a radius slightly smaller on the shorter side
+    """
+    mask = np.zeros((img_h, img_w), dtype=np.uint8)
+    cy, cx = img_h / 2.0, img_w / 2.0
+    radius = CIRCLE_RADIUS_FRACTION * min(img_h, img_w)
+    yy, xx = np.ogrid[:img_h, :img_w]
+    mask[(yy - cy) ** 2 + (xx - cx) ** 2 <= radius ** 2] = 1 # Mark pixels whose distance from the image center is within the circle's radius
+    return mask
+
+
+def segment_food(pillow_image: Image.Image, threshold: float = 0.3, prompt="food or drink", use_fallback_prompts: bool = True) -> tuple[np.ndarray, list[float], list[np.ndarray]]:
+    """
+    Segment food region using SAM 3 with provided prompt, falling back to broader prompts if nothing is found, and finally to a centered circular mask if all else fails.
     :return: union mask of all detected instances and per-instance scores.
     """
     img_w, img_h = pillow_image.size
     total_pixels = img_w * img_h
 
-    inputs = sam3_processor(images=pillow_image, text=prompt, return_tensors="pt").to(torch_device)
+    possible_prompts = list(dict.fromkeys([prompt, *PROMPT_FALLBACKS])) if use_fallback_prompts else [prompt]
 
-    sam3 = get_model("sam3")
-    with torch.no_grad():
-        outputs = sam3(**inputs)
+    for attempt_prompt in possible_prompts:
+        inputs = sam3_processor(images=pillow_image, text=attempt_prompt, return_tensors="pt").to(torch_device)
 
-    results = sam3_processor.post_process_instance_segmentation(
-        outputs,
-        threshold=threshold,
-        mask_threshold=0.5,
-        target_sizes=inputs.get("original_sizes").tolist()
-    )[0]
+        sam3 = get_model("sam3")
+        with torch.no_grad():
+            outputs = sam3(**inputs)
 
-    instance_masks = results["masks"]
-    instance_scores = results["scores"]
+        results = sam3_processor.post_process_instance_segmentation(
+            outputs,
+            threshold=threshold,
+            mask_threshold=0.5,
+            target_sizes=inputs.get("original_sizes").tolist()
+        )[0]
 
-    if instance_masks.shape[0] == 0:
-        logger.warning("  SAM 3 | No food instances found -> using full-image fallback mask")
-        fallback = np.ones((img_h, img_w), dtype=np.uint8)
-        return fallback, [], [fallback]
+        instance_masks = results["masks"]
+        instance_scores = results["scores"]
 
-    instance_scores_list = instance_scores.tolist()
-    instance_masks_list = [m.cpu().numpy().astype(np.uint8) for m in instance_masks]
+        if instance_masks.shape[0] == 0:
+            logger.warning(f"  SAM 3 | prompt='{attempt_prompt}' -> no instances found")
+            continue
 
-    # Log per-instance breakdown before union
-    for i, s in enumerate(instance_scores_list):
-        inst_px = int(instance_masks[i].sum().item())
-        inst_pct = inst_px / total_pixels * 100
-        logger.info(f"  SAM 3 | Instance {i}: score={s:.3f}  pixels={inst_px}  coverage={inst_pct:.1f}%")
+        instance_scores_list = instance_scores.tolist()
+        instance_masks_list = [m.cpu().numpy().astype(np.uint8) for m in instance_masks]
 
-    union_mask = instance_masks.any(dim=0).cpu().numpy().astype(np.uint8)
-    union_px = int(union_mask.sum())
-    union_pct = union_px / total_pixels * 100
-    bg_pct = 100.0 - union_pct
+        # Log per-instance breakdown before union
+        for i, s in enumerate(instance_scores_list):
+            inst_px = int(instance_masks[i].sum().item())
+            inst_pct = inst_px / total_pixels * 100
+            logger.info(f"  SAM 3 | Instance {i}: score={s:.3f}  pixels={inst_px}  coverage={inst_pct:.1f}%")
 
-    logger.info(
-        f"  SAM 3 | Union mask: {union_px} px food ({union_pct:.1f}%)  |  "
-        f"{total_pixels - union_px} px background ({bg_pct:.1f}%)"
-    )
+        union_mask = instance_masks.any(dim=0).cpu().numpy().astype(np.uint8)
+        union_px = int(union_mask.sum())
+        union_pct = union_px / total_pixels * 100
+        bg_pct = 100.0 - union_pct
 
-    if union_pct > 80.0:
-        logger.warning(f"  SAM 3 | Food mask covers {union_pct:.1f}% of image -> background region too small for reliable plane fitting")
-    if union_pct < 2.0:
-        logger.warning(f"  SAM 3 | Food mask covers only {union_pct:.1f}% of image -> possible segmentation failure")
+        logger.info(
+            f"  SAM 3 | Union mask: {union_px} px food ({union_pct:.1f}%)  |  "
+            f"{total_pixels - union_px} px background ({bg_pct:.1f}%)"
+        )
 
-    return union_mask, instance_scores_list, instance_masks_list
+        if union_pct > 80.0:
+            logger.warning(f"  SAM 3 | Food mask covers {union_pct:.1f}% of image -> background region too small for reliable plane fitting")
+        if union_pct < 2.0:
+            logger.warning(f"  SAM 3 | Food mask covers only {union_pct:.1f}% of image -> possible segmentation failure")
+
+        return union_mask, instance_scores_list, instance_masks_list
+
+    logger.warning(f"  SAM 3 | All prompts {possible_prompts} found nothing -> using centered-circle fallback mask instead")
+    fallback = get_central_circle_mask(img_h, img_w)
+    return fallback, [], [fallback]
 
 
 def segment_food_items(pillow_image: Image.Image, entities: list[dict], threshold: float = 0.5) -> list[FoodItemResult]:
@@ -86,7 +105,7 @@ def segment_food_items(pillow_image: Image.Image, entities: list[dict], threshol
     items = []
     for entity in entities:
         prompt = entity["text"]
-        mask, scores, _ = segment_food(pillow_image, threshold=threshold, prompt=prompt)
+        mask, scores, _ = segment_food(pillow_image, threshold=threshold, prompt=prompt, use_fallback_prompts=False) # Don't want to fall back to using "food and drink" for individual items
         if not scores:
             logger.warning(f"  Items | '{prompt}' not found in image -> excluded from the total")
             continue
