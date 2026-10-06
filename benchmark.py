@@ -1,3 +1,10 @@
+"""
+Build and run repeatable benchmark jobs against the volume-estimation API.
+
+Note: Claude was used to produce the majority of this benchmarking utility. It was then reviewed and adapted for this project's
+endpoints, data formats, and evaluation requirements.
+"""
+
 import argparse
 import base64
 import csv

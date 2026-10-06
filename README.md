@@ -2,6 +2,8 @@
 
 A pipeline server for processing and estimating the volume of food images taken via a mobile application.
 
+The API entry point is `main.py` and the three estimation approaches live in `approaches/`.
+
 ## Approaches
 
 Three approaches have been investigated (only monocular connected to NLP), each as its own endpoint:
@@ -226,7 +228,7 @@ python benchmark.py build-simplefood45 --labels ./data/ordered_dataset/labels.cs
 python benchmark.py run --manifest ./data/benchmark_manifest_simplefood45.csv
 ```
 
-It expects the server on `http://localhost:8001` (override with `VOLUME_API_URL`), and serving `approaches.multiview:app` since the manifest can ask for all three approaches. Results are written per row so an interrupted run resumes, and the summary tables break error down by approach, by arm (which scale anchor, text vs no text) and by camera pose.
+If you are not running the server on your local machine, set `VOLUME_API_URL=` in your environment. Serve `approaches.multiview:app` locally if the manifest includes all three approaches. Results are written per row so an interrupted run resumes, and the summary tables break error down by approach, by arm (which scale anchor, text vs no text) and by camera pose.
 
 ---
 
