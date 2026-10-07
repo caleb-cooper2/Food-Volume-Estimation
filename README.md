@@ -1,4 +1,4 @@
-# Volume Estimation
+# Food Volume Estimation
 
 A pipeline server for processing and estimating the volume of food images taken via a mobile application.
 
