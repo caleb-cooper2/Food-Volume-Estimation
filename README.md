@@ -88,7 +88,7 @@ uvicorn approaches.multiview:app --reload --host 0.0.0.0 --port 8001
 VGGT-1B (~5GB) is downloaded from Hugging Face on first run.
 
 ### Connect the NLP Server
-The monocular endpoint calls the `unstructured-food-input` server to turn the user's text into food names (which prompt SAM 3 per item), densities (which turn volume into mass), and nutrients (which get rescaled from the text-implied grams to the photo-estimated `mass_g`). It's optional, without it the endpoint segments a single generic `food` mask and returns volume only.
+The monocular endpoint calls the `Food-Natural-Language-Processing` server to turn the user's text into food names (which prompt SAM 3 per item), densities (which turn volume into mass), and nutrients (which get rescaled from the text-implied grams to the photo-estimated `mass_g`). It's optional, without it the endpoint segments a single generic `food` mask and returns volume only.
 
 It's expected on `http://localhost:8000`, override with `NLP_URL` if it's somewhere else
 
