@@ -22,7 +22,7 @@ Three approaches have been investigated (only monocular connected to NLP), each 
 ### Clone the Repository
 ```bash
 git clone <repository-url>
-cd volume-estimation
+cd Food-Volume-Estimation
 ```
 
 ### Create a Virtual Environment and Install Dependencies
